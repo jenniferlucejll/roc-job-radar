@@ -1,8 +1,8 @@
-import { and, count, eq, inArray, isNull } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { employers, jobs, keywordFilters, scrapeErrors } from '../db/schema.js';
+import { employers, jobs, keywordFilters, scrapeErrors, scrapeRuns } from '../db/schema.js';
 import { config } from '../config.js';
-import type { ScrapeEmployerSummary, ScrapeResult } from '../types/index.js';
+import type { ScrapeEmployerSummary, ScrapeRunSummary, ScrapeResult } from '../types/index.js';
 import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
 import { passesFilter } from './filters.js';
@@ -46,17 +46,19 @@ const state: ScrapeState = {
   lastStartedAt: null,
 };
 
-export function getScrapeStatus(): {
+export async function getScrapeStatus(): Promise<{
   running: boolean;
   lastResult: ScrapeResult | null;
   lastStartedAt: string | null;
   runId: string | null;
-} {
+  recentRuns: ScrapeRunSummary[];
+}> {
   return {
     running: state.running,
     lastResult: state.lastResult,
     runId: state.currentRunId ?? state.lastResult?.runId ?? null,
     lastStartedAt: state.lastStartedAt?.toISOString() ?? null,
+    recentRuns: await getRecentScrapeRuns(),
   };
 }
 
@@ -222,10 +224,12 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     openErrors += open;
   }
 
-  return {
+  const finishedAt = new Date();
+  const result: ScrapeResult = {
     runId,
     startedAt,
-    finishedAt: new Date(),
+    finishedAt,
+    status: errors > 0 ? 'partial_error' : 'success',
     employersRun,
     jobsInserted,
     jobsUpdated,
@@ -236,6 +240,69 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     openErrors,
     employers: employerSummaries,
   };
+
+  await persistScrapeRun(result);
+  return result;
+}
+
+async function persistScrapeRun(result: ScrapeResult): Promise<void> {
+  try {
+    await db.insert(scrapeRuns).values({
+      runId: result.runId,
+      status: result.status,
+      startedAt: result.startedAt,
+      finishedAt: result.finishedAt,
+      employersRun: result.employersRun,
+      jobsInserted: result.jobsInserted,
+      jobsUpdated: result.jobsUpdated,
+      jobsRemoved: result.jobsRemoved,
+      errors: result.errors,
+      requestAttempts: result.requestAttempts,
+      retryAttempts: result.retryAttempts,
+      openErrors: result.openErrors,
+      durationMs: result.finishedAt.getTime() - result.startedAt.getTime(),
+    });
+  } catch (err) {
+    console.error('[pipeline] failed to persist scrape run:', err);
+  }
+}
+
+async function getRecentScrapeRuns(limit = 10): Promise<ScrapeRunSummary[]> {
+  const rows = await db
+    .select({
+      runId: scrapeRuns.runId,
+      status: scrapeRuns.status,
+      startedAt: scrapeRuns.startedAt,
+      finishedAt: scrapeRuns.finishedAt,
+      durationMs: scrapeRuns.durationMs,
+      employersRun: scrapeRuns.employersRun,
+      jobsInserted: scrapeRuns.jobsInserted,
+      jobsUpdated: scrapeRuns.jobsUpdated,
+      jobsRemoved: scrapeRuns.jobsRemoved,
+      errors: scrapeRuns.errors,
+      requestAttempts: scrapeRuns.requestAttempts,
+      retryAttempts: scrapeRuns.retryAttempts,
+      openErrors: scrapeRuns.openErrors,
+    })
+    .from(scrapeRuns)
+    .orderBy(desc(scrapeRuns.finishedAt), desc(scrapeRuns.id))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    runId: row.runId,
+    status: row.status as 'running' | 'success' | 'partial_error' | 'failed',
+    startedAt: row.startedAt,
+    finishedAt: row.finishedAt,
+    durationMs: row.durationMs,
+    employersRun: row.employersRun,
+    jobsInserted: row.jobsInserted,
+    jobsUpdated: row.jobsUpdated,
+    jobsRemoved: row.jobsRemoved,
+    errors: row.errors,
+    requestAttempts: row.requestAttempts,
+    retryAttempts: row.retryAttempts,
+    openErrors: row.openErrors,
+  }));
 }
 
 async function getOpenErrorCountsByEmployer(employerIds: number[]): Promise<Map<number, number>> {

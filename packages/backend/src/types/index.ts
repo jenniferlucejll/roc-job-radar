@@ -17,6 +17,7 @@ export interface ScrapeResult {
   runId: string;
   startedAt: Date;
   finishedAt: Date;
+  status: ScrapeRunStatus;
   employersRun: number;
   jobsInserted: number;
   jobsUpdated: number;
@@ -27,6 +28,24 @@ export interface ScrapeResult {
   openErrors: number;
   employers: ScrapeEmployerSummary[];
 }
+
+export interface ScrapeRunSummary {
+  runId: string;
+  status: ScrapeRunStatus;
+  startedAt: Date;
+  finishedAt: Date;
+  durationMs: number;
+  employersRun: number;
+  jobsInserted: number;
+  jobsUpdated: number;
+  jobsRemoved: number;
+  errors: number;
+  requestAttempts: number;
+  retryAttempts: number;
+  openErrors: number;
+}
+
+export type ScrapeRunStatus = 'running' | 'success' | 'partial_error' | 'failed';
 
 export interface ScrapeEmployerSummary {
   employerId: number;

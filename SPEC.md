@@ -250,7 +250,7 @@ Base path: `/api`
 | GET | `/jobs/:id` | Single job detail |
 | GET | `/employers` | List all employers with active status |
 | POST | `/scrape` | Trigger scrape pipeline manually. Returns `{ runId, started }` |
-| GET | `/scrape/status` | Last scrape run metadata + request/retry metrics + unresolved error counts |
+| GET | `/scrape/status` | Run metadata, request/retry metrics, unresolved errors, and recent run history |
 
 All responses are JSON. Errors return `{ error: string, code: string }` with appropriate HTTP status.
 

@@ -16,6 +16,7 @@ scrapeRouter.post('/', (_req, res) => {
   res.status(202).json({ started: true, runId });
 });
 
-scrapeRouter.get('/status', (_req, res) => {
-  res.json(getScrapeStatus());
+scrapeRouter.get('/status', async (_req, res) => {
+  const status = await getScrapeStatus();
+  res.json(status);
 });

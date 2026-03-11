@@ -39,6 +39,24 @@ export const scrapeErrors = pgTable('scrape_errors', {
   resolvedAt: timestamp('resolved_at'),
 });
 
+export const scrapeRuns = pgTable('scrape_runs', {
+  id: serial('id').primaryKey(),
+  runId: text('run_id').notNull().unique(),
+  status: text('status').notNull().default('success'),
+  startedAt: timestamp('started_at').notNull(),
+  finishedAt: timestamp('finished_at').notNull(),
+  employersRun: integer('employers_run').notNull().default(0),
+  jobsInserted: integer('jobs_inserted').notNull().default(0),
+  jobsUpdated: integer('jobs_updated').notNull().default(0),
+  jobsRemoved: integer('jobs_removed').notNull().default(0),
+  errors: integer('errors').notNull().default(0),
+  requestAttempts: integer('request_attempts').notNull().default(0),
+  retryAttempts: integer('retry_attempts').notNull().default(0),
+  openErrors: integer('open_errors').notNull().default(0),
+  durationMs: integer('duration_ms').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+});
+
 export const keywordFilters = pgTable('keyword_filters', {
   id: serial('id').primaryKey(),
   keyword: text('keyword').notNull().unique(),
