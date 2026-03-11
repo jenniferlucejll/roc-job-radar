@@ -1,0 +1,63 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { fetchWithRetry } from '../../src/scrapers/requestRetry.js';
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('fetchWithRetry', () => {
+  it('retries transient failures and eventually succeeds', async () => {
+    const mockResponses = [
+      { ok: false, status: 500 },
+      { ok: false, status: 502 },
+      { ok: true, json: async () => ({ ok: true }) },
+    ];
+
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      const current = mockResponses.shift();
+      if (!current) {
+        return { ok: true, json: async () => ({}) };
+      }
+      return current as Response;
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    const promise = fetchWithRetry('https://example.com', async (res) => (await res.json()) as { ok: boolean }, {
+      timeoutMs: 1000,
+      maxAttempts: 3,
+      baseDelayMs: 10,
+    });
+
+    const result = await promise;
+    expect(result).toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not retry non-retryable statuses', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'bad' } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(fetchWithRetry('https://example.com', async (res) => res.text(), {
+      timeoutMs: 1000,
+      maxAttempts: 3,
+      baseDelayMs: 10,
+    })).rejects.toThrow('status 400');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('throws after exhausting retries', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500, text: async () => 'err' } as Response);
+    vi.stubGlobal('fetch', fetchMock);
+
+    const p = fetchWithRetry('https://example.com', async (res) => res.text(), {
+      timeoutMs: 1000,
+      maxAttempts: 2,
+      baseDelayMs: 10,
+    });
+
+    await expect(p).rejects.toThrow('status 500');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});

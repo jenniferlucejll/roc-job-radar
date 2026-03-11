@@ -7,6 +7,7 @@
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
 import { BaseScraper } from '../base.js';
+import { fetchWithRetry } from '../requestRetry.js';
 
 const JOBS_URL = 'https://careers.paychex.com/api/jobs';
 
@@ -43,20 +44,16 @@ export class PaychexScraper extends BaseScraper {
   readonly employerKey = 'paychex';
 
   async scrape(): Promise<ScrapedJob[]> {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), config.scraper.timeoutMs);
-
-    let data: JibeResponse;
-    try {
-      const res = await fetch(JOBS_URL, {
+    const data = await fetchWithRetry(
+      JOBS_URL,
+      async (res) => (await res.json()) as JibeResponse,
+      {
         headers: { 'User-Agent': config.scraper.userAgent },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`Paychex API returned ${res.status}`);
-      data = (await res.json()) as JibeResponse;
-    } finally {
-      clearTimeout(timer);
-    }
+        timeoutMs: config.scraper.timeoutMs,
+        maxAttempts: config.scraper.maxRetryAttempts,
+        baseDelayMs: config.scraper.retryBaseDelayMs,
+      },
+    );
 
     return data.jobs.map(({ data: j }): ScrapedJob => ({
       externalId: j.req_id,

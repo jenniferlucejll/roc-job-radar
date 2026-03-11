@@ -64,6 +64,6 @@ describe('ESLScraper', () => {
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 500 }),
     );
-    await expect(eslScraper.scrape()).rejects.toThrow('ESL careers page returned 500');
+    await expect(eslScraper.scrape()).rejects.toThrow('Request failed with status 500');
   });
 });

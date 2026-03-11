@@ -1,5 +1,6 @@
 import type { ScrapedJob } from '../types/index.js';
 import { createRequestThrottler } from './requestThrottle.js';
+import { fetchWithRetry } from './requestRetry.js';
 
 export interface WorkdayConfig {
   /** Full POST endpoint, e.g. https://rochester.wd5.myworkdayjobs.com/wday/cxs/rochester/UR_Staff/jobs */
@@ -31,6 +32,8 @@ export async function fetchWorkdayJobs(
   userAgent: string,
   timeoutMs: number,
   requestIntervalMs = 1000,
+  maxRetryAttempts = 3,
+  retryBaseDelayMs = 1000,
 ): Promise<ScrapedJob[]> {
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
@@ -40,12 +43,10 @@ export async function fetchWorkdayJobs(
   while (offset < total) {
     await throttler.waitForNextSlot();
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-    let data: WorkdayResponse;
-    try {
-      const res = await fetch(wdConfig.apiUrl, {
+    const data = await fetchWithRetry(
+      wdConfig.apiUrl,
+      async (res) => (await res.json()) as WorkdayResponse,
+      {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -57,13 +58,11 @@ export async function fetchWorkdayJobs(
           offset,
           searchText: '',
         }),
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`Workday API returned ${res.status}`);
-      data = (await res.json()) as WorkdayResponse;
-    } finally {
-      clearTimeout(timer);
-    }
+        timeoutMs,
+        maxAttempts: maxRetryAttempts,
+        baseDelayMs: retryBaseDelayMs,
+      },
+    );
 
     total = data.total;
 

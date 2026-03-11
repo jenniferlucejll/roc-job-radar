@@ -1,6 +1,7 @@
 import { load } from 'cheerio';
 import { createRequestThrottler } from './requestThrottle.js';
 import type { ScrapedJob } from '../types/index.js';
+import { fetchWithRetry } from './requestRetry.js';
 
 export interface TalentBrewConfig {
   /** Scheme + host, e.g. https://careers.l3harris.com */
@@ -21,6 +22,8 @@ export async function fetchTalentBrewJobs(
   userAgent: string,
   timeoutMs: number,
   requestIntervalMs = 1000,
+  maxRetryAttempts = 3,
+  retryBaseDelayMs = 1000,
 ): Promise<ScrapedJob[]> {
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
@@ -39,23 +42,19 @@ export async function fetchTalentBrewJobs(
     url.searchParams.set('SearchFiltersModuleName', 'Search Filters');
     url.searchParams.set('RecordsPerPage', '15');
 
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let data: TalentBrewResponse;
-    try {
-      const res = await fetch(url.toString(), {
+    const data = await fetchWithRetry(
+      url.toString(),
+      async (res) => (await res.json()) as TalentBrewResponse,
+      {
         headers: {
           'User-Agent': userAgent,
           'X-Requested-With': 'XMLHttpRequest',
         },
-        signal: controller.signal,
-      });
-      if (!res.ok) throw new Error(`TalentBrew returned ${res.status}`);
-      data = (await res.json()) as TalentBrewResponse;
-    } finally {
-      clearTimeout(timer);
-    }
-
+        timeoutMs,
+        maxAttempts: maxRetryAttempts,
+        baseDelayMs: retryBaseDelayMs,
+      },
+    );
     if (!data.hasJobs) break;
 
     const $ = load(data.results);

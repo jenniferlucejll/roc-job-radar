@@ -24,6 +24,8 @@ export class WegmansScraper extends BaseScraper {
       config.scraper.userAgent,
       config.scraper.timeoutMs,
       config.scraper.requestIntervalMs,
+      config.scraper.maxRetryAttempts,
+      config.scraper.retryBaseDelayMs,
     );
   }
 }
