@@ -7,7 +7,9 @@ import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
 import { passesFilter } from './filters.js';
 import { paychexScraper } from './adapters/paychex.js';
+import { l3harrisScraper } from './adapters/l3harris.js';
 import { universityOfRochesterScraper } from './adapters/university-of-rochester.js';
+import { wegmansScraper } from './adapters/wegmans.js';
 
 // ---------------------------------------------------------------------------
 // Adapter registry
@@ -20,7 +22,9 @@ export function registerAdapter(adapter: BaseScraper): void {
 }
 
 registerAdapter(paychexScraper);
+registerAdapter(l3harrisScraper);
 registerAdapter(universityOfRochesterScraper);
+registerAdapter(wegmansScraper);
 
 // ---------------------------------------------------------------------------
 // Scrape state
