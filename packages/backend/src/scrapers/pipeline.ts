@@ -104,7 +104,10 @@ async function runPipeline(): Promise<ScrapeResult> {
 
   for (const employer of activeEmployers) {
     const adapter = adapters.get(employer.key);
-    if (!adapter) continue;
+    if (!adapter) {
+      console.warn(`[pipeline] Missing adapter for employer key: ${employer.key}`);
+      continue;
+    }
 
     employersRun++;
 
