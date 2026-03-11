@@ -1,8 +1,20 @@
 import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { employers, jobs, keywordFilters, scrapeErrors, scrapeRuns } from '../db/schema.js';
+import {
+  employers,
+  jobs,
+  keywordFilters,
+  scrapeErrors,
+  scrapeRuns,
+  scrapeRunEmployers,
+} from '../db/schema.js';
 import { config } from '../config.js';
-import type { ScrapeEmployerSummary, ScrapeRunSummary, ScrapeResult } from '../types/index.js';
+import type {
+  ScrapeEmployerSummary,
+  ScrapeRunSummary,
+  ScrapeResult,
+  ScrapeErrorDetail,
+} from '../types/index.js';
 import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
 import { passesFilter } from './filters.js';
@@ -55,11 +67,24 @@ export async function getScrapeStatus(limit = DEFAULT_STATUS_RECENT_RUNS): Promi
   runId: string | null;
   recentRuns: ScrapeRunSummary[];
 }> {
+  const [runningRun] = await getRunningScrapeRun();
+  const isRunning = state.running || runningRun !== undefined;
+  const inMemoryRunId = state.currentRunId ?? state.lastResult?.runId ?? null;
+  const lastStartedAt =
+    state.lastStartedAt?.toISOString() ?? runningRun?.startedAt?.toISOString() ?? null;
+  let persistedLastResult = state.lastResult;
+  if (!persistedLastResult) {
+    const latestCompletedRun = await getLatestCompletedScrapeResult();
+    if (latestCompletedRun) {
+      persistedLastResult = latestCompletedRun;
+    }
+  }
+
   return {
-    running: state.running,
-    lastResult: state.lastResult,
-    runId: state.currentRunId ?? state.lastResult?.runId ?? null,
-    lastStartedAt: state.lastStartedAt?.toISOString() ?? null,
+    running: isRunning,
+    lastResult: persistedLastResult,
+    runId: inMemoryRunId ?? runningRun?.runId ?? persistedLastResult?.runId ?? null,
+    lastStartedAt,
     recentRuns: await getRecentScrapeRuns(limit),
   };
 }
@@ -117,156 +142,215 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     .select({ keyword: keywordFilters.keyword })
     .from(keywordFilters)
     .where(eq(keywordFilters.active, true));
+  await startScrapeRunRecord(runId, startedAt);
 
   const keywords = activeKeywords.map((r) => r.keyword);
   const employerIds = activeEmployers.map((employer) => employer.id);
 
-  for (const employer of activeEmployers) {
-    employersRun++;
+  try {
+    for (const employer of activeEmployers) {
+      employersRun++;
 
-    const adapter = adapters.get(employer.key);
-    const employerSummary: ScrapeEmployerSummary = {
-      employerId: employer.id,
-      employerKey: employer.key,
-      employerName: employer.name,
-      status: 'success',
-      jobsScraped: 0,
-      jobsFiltered: 0,
-      jobsInserted: 0,
-      jobsUpdated: 0,
-      jobsRemoved: 0,
-      requestAttempts: 0,
-      retryAttempts: 0,
-      unresolvedErrors: 0,
-      errors: [],
-    };
+      const adapter = adapters.get(employer.key);
+      const employerSummary: ScrapeEmployerSummary = {
+        employerId: employer.id,
+        employerKey: employer.key,
+        employerName: employer.name,
+        status: 'success',
+        jobsScraped: 0,
+        jobsFiltered: 0,
+        jobsInserted: 0,
+        jobsUpdated: 0,
+        jobsRemoved: 0,
+        requestAttempts: 0,
+        retryAttempts: 0,
+        unresolvedErrors: 0,
+        errors: [],
+      };
 
-    const onRequestAttempt = (attemptInfo: { attempt: number }): void => {
-      employerSummary.requestAttempts++;
-      requestAttempts++;
-      if (attemptInfo.attempt > 1) {
-        employerSummary.retryAttempts++;
-        retryAttempts++;
-      }
-    };
+      const onRequestAttempt = (attemptInfo: { attempt: number }): void => {
+        employerSummary.requestAttempts++;
+        requestAttempts++;
+        if (attemptInfo.attempt > 1) {
+          employerSummary.retryAttempts++;
+          retryAttempts++;
+        }
+      };
 
-    if (!adapter) {
-      employerSummary.status = 'missing_adapter';
-      employerSummary.errors.push({
-        errorType: 'missing_adapter',
-        message: `No adapter registered for employer key ${employer.key}`,
-      });
-      errors++;
-      await logError(employer.id, 'missing_adapter', `No adapter registered for employer key ${employer.key}`);
-      console.warn(`[pipeline] Missing adapter for employer key: ${employer.key}`);
-      employerSummaries.push(employerSummary);
-      continue;
-    }
-
-    try {
-      const allowed = await checkRobots(
-        employer.careerUrl,
-        config.scraper.userAgent,
-        config.scraper.timeoutMs,
-      );
-
-      if (!allowed) {
-        employerSummary.status = 'robots_blocked';
+      if (!adapter) {
+        employerSummary.status = 'missing_adapter';
         employerSummary.errors.push({
-          errorType: 'robots_blocked',
-          message: `robots.txt disallows ${employer.careerUrl}`,
+          errorType: 'missing_adapter',
+          message: `No adapter registered for employer key ${employer.key}`,
         });
-        await logError(employer.id, 'robots_blocked', `robots.txt disallows ${employer.careerUrl}`);
         errors++;
+        await logError(employer.id, 'missing_adapter', `No adapter registered for employer key ${employer.key}`);
+        console.warn(`[pipeline] Missing adapter for employer key: ${employer.key}`);
         employerSummaries.push(employerSummary);
         continue;
       }
 
-      const scraped = await adapter.scrape({
-        onRequestAttempt,
-      });
-      employerSummary.jobsScraped = scraped.length;
+      try {
+        const allowed = await checkRobots(
+          employer.careerUrl,
+          config.scraper.userAgent,
+          config.scraper.timeoutMs,
+        );
 
-      const filtered = scraped.filter((job) => passesFilter(job, keywords));
-      employerSummary.jobsFiltered = filtered.length;
+        if (!allowed) {
+          employerSummary.status = 'robots_blocked';
+          employerSummary.errors.push({
+            errorType: 'robots_blocked',
+            message: `robots.txt disallows ${employer.careerUrl}`,
+          });
+          await logError(employer.id, 'robots_blocked', `robots.txt disallows ${employer.careerUrl}`);
+          errors++;
+          employerSummaries.push(employerSummary);
+          continue;
+        }
 
-      const counts = await persistJobs(employer.id, filtered);
-      jobsInserted += counts.inserted;
-      jobsUpdated += counts.updated;
-      jobsRemoved += counts.removed;
-      errors += counts.errors.length;
-      employerSummary.errors.push(...counts.errors);
-      employerSummary.jobsInserted = counts.inserted;
-      employerSummary.jobsUpdated = counts.updated;
-      employerSummary.jobsRemoved = counts.removed;
+        const scraped = await adapter.scrape({
+          onRequestAttempt,
+        });
+        employerSummary.jobsScraped = scraped.length;
 
-      if (counts.errors.length === 0) {
-        await markErrorsResolved(employer.id);
-      } else {
+        const filtered = scraped.filter((job) => passesFilter(job, keywords));
+        employerSummary.jobsFiltered = filtered.length;
+
+        const counts = await persistJobs(employer.id, filtered);
+        jobsInserted += counts.inserted;
+        jobsUpdated += counts.updated;
+        jobsRemoved += counts.removed;
+        errors += counts.errors.length;
+        employerSummary.errors.push(...counts.errors);
+        employerSummary.jobsInserted = counts.inserted;
+        employerSummary.jobsUpdated = counts.updated;
+        employerSummary.jobsRemoved = counts.removed;
+
+        if (counts.errors.length === 0) {
+          await markErrorsResolved(employer.id);
+        } else {
+          employerSummary.status = 'error';
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        const errorType = classifyError(err);
+        await logError(employer.id, errorType, message);
+        errors++;
         employerSummary.status = 'error';
+        employerSummary.errors.push({ errorType, message });
+        console.error(`[pipeline] ${employer.key} failed: ${message}`);
+      } finally {
+        employerSummaries.push(employerSummary);
       }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      const errorType = classifyError(err);
-      await logError(employer.id, errorType, message);
-      errors++;
-      employerSummary.status = 'error';
-      employerSummary.errors.push({ errorType, message });
-      console.error(`[pipeline] ${employer.key} failed: ${message}`);
-    } finally {
-      employerSummaries.push(employerSummary);
     }
+
+    const openErrorCounts = await getOpenErrorCountsByEmployer(employerIds);
+    let openErrors = 0;
+    for (const summary of employerSummaries) {
+      const open = openErrorCounts.get(summary.employerId) ?? 0;
+      summary.unresolvedErrors = open;
+      openErrors += open;
+    }
+
+    const finishedAt = new Date();
+    const result: ScrapeResult = {
+      runId,
+      startedAt,
+      finishedAt,
+      status: errors > 0 ? 'partial_error' : 'success',
+      employersRun,
+      jobsInserted,
+      jobsUpdated,
+      jobsRemoved,
+      errors,
+      requestAttempts,
+      retryAttempts,
+      openErrors,
+      employers: employerSummaries,
+    };
+    await finalizeScrapeRun(result);
+    return result;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[pipeline] Scrape run ${runId} failed: ${message}`);
+    const finishedAt = new Date();
+
+    const openErrorCounts = await getOpenErrorCountsByEmployer(employerIds);
+    let openErrors = 0;
+    for (const summary of employerSummaries) {
+      const open = openErrorCounts.get(summary.employerId) ?? 0;
+      summary.unresolvedErrors = open;
+      openErrors += open;
+    }
+
+    const result: ScrapeResult = {
+      runId,
+      startedAt,
+      finishedAt,
+      status: 'failed',
+      employersRun,
+      jobsInserted,
+      jobsUpdated,
+      jobsRemoved,
+      errors: errors + 1,
+      requestAttempts,
+      retryAttempts,
+      openErrors,
+      employers: employerSummaries,
+    };
+    await finalizeScrapeRun(result);
+    return result;
   }
-
-  const openErrorCounts = await getOpenErrorCountsByEmployer(employerIds);
-  let openErrors = 0;
-  for (const summary of employerSummaries) {
-    const open = openErrorCounts.get(summary.employerId) ?? 0;
-    summary.unresolvedErrors = open;
-    openErrors += open;
-  }
-
-  const finishedAt = new Date();
-  const result: ScrapeResult = {
-    runId,
-    startedAt,
-    finishedAt,
-    status: errors > 0 ? 'partial_error' : 'success',
-    employersRun,
-    jobsInserted,
-    jobsUpdated,
-    jobsRemoved,
-    errors,
-    requestAttempts,
-    retryAttempts,
-    openErrors,
-    employers: employerSummaries,
-  };
-
-  await persistScrapeRun(result);
-  return result;
 }
 
-async function persistScrapeRun(result: ScrapeResult): Promise<void> {
+async function startScrapeRunRecord(runId: string, startedAt: Date): Promise<void> {
+  await clearRunningScrapeRuns(startedAt);
+
   try {
     await db.insert(scrapeRuns).values({
-      runId: result.runId,
-      status: result.status,
-      startedAt: result.startedAt,
-      finishedAt: result.finishedAt,
-      employersRun: result.employersRun,
-      jobsInserted: result.jobsInserted,
-      jobsUpdated: result.jobsUpdated,
-      jobsRemoved: result.jobsRemoved,
-      errors: result.errors,
-      requestAttempts: result.requestAttempts,
-      retryAttempts: result.retryAttempts,
-      openErrors: result.openErrors,
-      durationMs: result.finishedAt.getTime() - result.startedAt.getTime(),
+      runId,
+      status: 'running',
+      startedAt,
+      finishedAt: startedAt,
+      durationMs: 0,
     });
+  } catch (err) {
+    console.error('[pipeline] failed to insert running scrape run:', err);
+  }
+}
+
+async function finalizeScrapeRun(result: ScrapeResult): Promise<void> {
+  try {
+    await db
+      .update(scrapeRuns)
+      .set({
+        status: result.status,
+        employersRun: result.employersRun,
+        jobsInserted: result.jobsInserted,
+        jobsUpdated: result.jobsUpdated,
+        jobsRemoved: result.jobsRemoved,
+        errors: result.errors,
+        requestAttempts: result.requestAttempts,
+        retryAttempts: result.retryAttempts,
+        openErrors: result.openErrors,
+        finishedAt: result.finishedAt,
+        durationMs: result.finishedAt.getTime() - result.startedAt.getTime(),
+      })
+      .where(eq(scrapeRuns.runId, result.runId));
+    await persistScrapeRunEmployers(result.runId, result.employers);
   } catch (err) {
     console.error('[pipeline] failed to persist scrape run:', err);
   }
+}
+
+async function getRunningScrapeRun(): Promise<Array<{ runId: string; startedAt: Date }>> {
+  return db
+    .select({ runId: scrapeRuns.runId, startedAt: scrapeRuns.startedAt })
+    .from(scrapeRuns)
+    .where(eq(scrapeRuns.status, 'running'))
+    .orderBy(desc(scrapeRuns.startedAt))
+    .limit(1);
 }
 
 async function getRecentScrapeRuns(limit = 10): Promise<ScrapeRunSummary[]> {
@@ -305,6 +389,146 @@ async function getRecentScrapeRuns(limit = 10): Promise<ScrapeRunSummary[]> {
     retryAttempts: row.retryAttempts,
     openErrors: row.openErrors,
   }));
+}
+
+async function getLatestCompletedScrapeResult(): Promise<ScrapeResult | null> {
+  const [run] = await db
+    .select({
+      runId: scrapeRuns.runId,
+      status: scrapeRuns.status,
+      startedAt: scrapeRuns.startedAt,
+      finishedAt: scrapeRuns.finishedAt,
+      durationMs: scrapeRuns.durationMs,
+      employersRun: scrapeRuns.employersRun,
+      jobsInserted: scrapeRuns.jobsInserted,
+      jobsUpdated: scrapeRuns.jobsUpdated,
+      jobsRemoved: scrapeRuns.jobsRemoved,
+      errors: scrapeRuns.errors,
+      requestAttempts: scrapeRuns.requestAttempts,
+      retryAttempts: scrapeRuns.retryAttempts,
+      openErrors: scrapeRuns.openErrors,
+    })
+    .from(scrapeRuns)
+    .where(inArray(scrapeRuns.status, ['success', 'partial_error', 'failed']))
+    .orderBy(desc(scrapeRuns.finishedAt), desc(scrapeRuns.id))
+    .limit(1);
+
+  if (!run) {
+    return null;
+  }
+
+  const employerRows = await db
+    .select({
+      employerId: scrapeRunEmployers.employerId,
+      status: scrapeRunEmployers.status,
+      jobsScraped: scrapeRunEmployers.jobsScraped,
+      jobsFiltered: scrapeRunEmployers.jobsFiltered,
+      jobsInserted: scrapeRunEmployers.jobsInserted,
+      jobsUpdated: scrapeRunEmployers.jobsUpdated,
+      jobsRemoved: scrapeRunEmployers.jobsRemoved,
+      requestAttempts: scrapeRunEmployers.requestAttempts,
+      retryAttempts: scrapeRunEmployers.retryAttempts,
+      unresolvedErrors: scrapeRunEmployers.unresolvedErrors,
+      errors: scrapeRunEmployers.errors,
+      employerName: employers.name,
+      employerKey: employers.key,
+    })
+    .from(scrapeRunEmployers)
+    .innerJoin(employers, eq(scrapeRunEmployers.employerId, employers.id))
+    .where(eq(scrapeRunEmployers.runId, run.runId))
+    .orderBy(scrapeRunEmployers.id);
+
+  return {
+    runId: run.runId,
+    status: run.status as 'success' | 'partial_error' | 'failed',
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+    durationMs: run.durationMs,
+    employersRun: run.employersRun,
+    jobsInserted: run.jobsInserted,
+    jobsUpdated: run.jobsUpdated,
+    jobsRemoved: run.jobsRemoved,
+    errors: run.errors,
+    requestAttempts: run.requestAttempts,
+    retryAttempts: run.retryAttempts,
+    openErrors: run.openErrors,
+    employers: employerRows.map((row) => ({
+      employerId: row.employerId,
+      employerKey: row.employerKey,
+      employerName: row.employerName,
+      status: row.status as 'success' | 'missing_adapter' | 'robots_blocked' | 'error',
+      jobsScraped: row.jobsScraped,
+      jobsFiltered: row.jobsFiltered,
+      jobsInserted: row.jobsInserted,
+      jobsUpdated: row.jobsUpdated,
+      jobsRemoved: row.jobsRemoved,
+      requestAttempts: row.requestAttempts,
+      retryAttempts: row.retryAttempts,
+      unresolvedErrors: row.unresolvedErrors,
+      errors: safeParseEmployerErrors(row.errors),
+    })),
+  };
+}
+
+async function persistScrapeRunEmployers(
+  runId: string,
+  employersSummary: ScrapeEmployerSummary[],
+): Promise<void> {
+  if (employersSummary.length === 0) {
+    return;
+  }
+
+  try {
+    await db.delete(scrapeRunEmployers).where(eq(scrapeRunEmployers.runId, runId));
+    await db.insert(scrapeRunEmployers).values(
+      employersSummary.map((summary) => ({
+        runId,
+        employerId: summary.employerId,
+        status: summary.status,
+        jobsScraped: summary.jobsScraped,
+        jobsFiltered: summary.jobsFiltered,
+        jobsInserted: summary.jobsInserted,
+        jobsUpdated: summary.jobsUpdated,
+        jobsRemoved: summary.jobsRemoved,
+        requestAttempts: summary.requestAttempts,
+        retryAttempts: summary.retryAttempts,
+        unresolvedErrors: summary.unresolvedErrors,
+        errors: JSON.stringify(summary.errors),
+      })),
+    );
+  } catch (err) {
+    console.error('[pipeline] failed to persist scrape run employer summaries:', err);
+  }
+}
+
+function safeParseEmployerErrors(raw: string): ScrapeErrorDetail[] {
+  try {
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed.filter(
+        (entry): entry is ScrapeErrorDetail =>
+          typeof entry?.errorType === 'string' && typeof entry?.message === 'string',
+      );
+    }
+  } catch (_err) {
+    return [];
+  }
+  return [];
+}
+
+async function clearRunningScrapeRuns(before: Date): Promise<void> {
+  try {
+    await db
+      .update(scrapeRuns)
+      .set({
+        status: 'failed',
+        finishedAt: before,
+        durationMs: 0,
+      })
+      .where(eq(scrapeRuns.status, 'running'));
+  } catch (err) {
+    console.error('[pipeline] failed to cleanup stale scrape runs:', err);
+  }
 }
 
 async function getOpenErrorCountsByEmployer(employerIds: number[]): Promise<Map<number, number>> {

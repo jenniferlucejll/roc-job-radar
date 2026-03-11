@@ -57,6 +57,25 @@ export const scrapeRuns = pgTable('scrape_runs', {
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 
+export const scrapeRunEmployers = pgTable('scrape_run_employers', {
+  id: serial('id').primaryKey(),
+  runId: text('run_id').notNull().references(() => scrapeRuns.runId),
+  employerId: integer('employer_id').notNull().references(() => employers.id),
+  status: text('status').notNull(),
+  jobsScraped: integer('jobs_scraped').notNull().default(0),
+  jobsFiltered: integer('jobs_filtered').notNull().default(0),
+  jobsInserted: integer('jobs_inserted').notNull().default(0),
+  jobsUpdated: integer('jobs_updated').notNull().default(0),
+  jobsRemoved: integer('jobs_removed').notNull().default(0),
+  requestAttempts: integer('request_attempts').notNull().default(0),
+  retryAttempts: integer('retry_attempts').notNull().default(0),
+  unresolvedErrors: integer('unresolved_errors').notNull().default(0),
+  errors: text('errors').notNull().default('[]'),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+  unique('scrape_run_employers_run_id_employer_id_unique').on(table.runId, table.employerId),
+]);
+
 export const keywordFilters = pgTable('keyword_filters', {
   id: serial('id').primaryKey(),
   keyword: text('keyword').notNull().unique(),
