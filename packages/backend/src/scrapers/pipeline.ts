@@ -1,4 +1,4 @@
-import { eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { employers, jobs, keywordFilters, scrapeErrors } from '../db/schema.js';
 import { config } from '../config.js';
@@ -173,9 +173,17 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
       jobsInserted += counts.inserted;
       jobsUpdated += counts.updated;
       jobsRemoved += counts.removed;
+      errors += counts.errors.length;
+      employerSummary.errors.push(...counts.errors);
       employerSummary.jobsInserted = counts.inserted;
       employerSummary.jobsUpdated = counts.updated;
       employerSummary.jobsRemoved = counts.removed;
+
+      if (counts.errors.length === 0) {
+        await markErrorsResolved(employer.id);
+      } else {
+        employerSummary.status = 'error';
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const errorType = classifyError(err);
@@ -205,29 +213,64 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
 async function persistJobs(
   employerId: number,
   scrapedJobs: Awaited<ReturnType<BaseScraper['scrape']>>,
-): Promise<{ inserted: number; updated: number; removed: number }> {
+): Promise<{ inserted: number; updated: number; removed: number; errors: ScrapeError[] }> {
   const now = new Date();
   let inserted = 0;
   let updated = 0;
   let removed = 0;
+  const errors: ScrapeError[] = [];
+  const seenIds = new Set<number>();
+  const normalized = normalizeScrapedJobs(scrapedJobs);
 
   const existing = await db
-    .select({ id: jobs.id, externalId: jobs.externalId, removedAt: jobs.removedAt })
+    .select({
+      id: jobs.id,
+      externalId: jobs.externalId,
+      url: jobs.url,
+      title: jobs.title,
+      location: jobs.location,
+      remoteStatus: jobs.remoteStatus,
+      department: jobs.department,
+      descriptionHtml: jobs.descriptionHtml,
+      salaryRaw: jobs.salaryRaw,
+      datePostedAt: jobs.datePostedAt,
+      removedAt: jobs.removedAt,
+    })
     .from(jobs)
     .where(eq(jobs.employerId, employerId));
 
   const existingByExtId = new Map(existing.map((j) => [j.externalId, j]));
-  const scrapedExtIds = new Set(scrapedJobs.map((j) => j.externalId));
+  const existingByUrl = new Map(existing.map((j) => [j.url, j]));
+  const scrapedExtIds = new Set(normalized.map((j) => j.externalId));
 
-  for (const job of scrapedJobs) {
+  for (const job of normalized) {
+    if (!job.url || !job.externalId) continue;
+
     const ex = existingByExtId.get(job.externalId);
     if (ex) {
+      seenIds.add(ex.id);
+      const updatedValues = toPersistedJobValues(job, ex.externalId, now);
       await db
         .update(jobs)
-        .set({ lastSeenAt: now, removedAt: null })
+        .set(updatedValues)
         .where(eq(jobs.id, ex.id));
       updated++;
-    } else {
+      continue;
+    }
+
+    const byUrl = existingByUrl.get(job.url);
+    if (byUrl) {
+      seenIds.add(byUrl.id);
+      const updatedValues = toPersistedJobValues(job, byUrl.externalId, now);
+      await db
+        .update(jobs)
+        .set(updatedValues)
+        .where(eq(jobs.id, byUrl.id));
+      updated++;
+      continue;
+    }
+
+    try {
       await db.insert(jobs).values({
         employerId,
         externalId: job.externalId,
@@ -243,17 +286,26 @@ async function persistJobs(
         lastSeenAt: now,
       });
       inserted++;
+    } catch (err: unknown) {
+      if (isUniqueConstraintViolation(err)) {
+        errors.push({
+          errorType: 'url_conflict',
+          message: `Could not insert duplicate URL: ${job.url}`,
+        });
+        continue;
+      }
+      throw err;
     }
   }
 
   for (const ex of existing) {
-    if (ex.removedAt === null && !scrapedExtIds.has(ex.externalId)) {
+    if (ex.removedAt === null && !seenIds.has(ex.id) && !scrapedExtIds.has(ex.externalId)) {
       await db.update(jobs).set({ removedAt: now }).where(eq(jobs.id, ex.id));
       removed++;
     }
   }
 
-  return { inserted, updated, removed };
+  return { inserted, updated, removed, errors };
 }
 
 async function logError(
@@ -265,6 +317,63 @@ async function logError(
     await db.insert(scrapeErrors).values({ employerId, errorType, message });
   } catch (err) {
     console.error('[pipeline] failed to log error:', err);
+  }
+}
+
+function toPersistedJobValues(
+  job: Awaited<ReturnType<BaseScraper['scrape']>>[number],
+  stableExternalId: string,
+  now: Date,
+): Partial<(typeof jobs)['$inferInsert']> {
+  return {
+    externalId: stableExternalId,
+    title: job.title,
+    location: job.location ?? null,
+    remoteStatus: job.remoteStatus ?? null,
+    department: job.department ?? null,
+    descriptionHtml: job.descriptionHtml ?? null,
+    salaryRaw: job.salaryRaw ?? null,
+    datePostedAt: job.datePostedAt ?? null,
+    removedAt: null,
+    lastSeenAt: now,
+  };
+}
+
+function normalizeScrapedJobs(
+  scrapedJobs: Awaited<ReturnType<BaseScraper['scrape']>>,
+): Awaited<ReturnType<BaseScraper['scrape']>> {
+  const uniqueByExternalId = new Map<string, (typeof scrapedJobs)[number]>();
+  const uniqueByUrl = new Map<string, (typeof scrapedJobs)[number]>();
+  for (const job of scrapedJobs) {
+    if (!job.externalId || !job.url) continue;
+    uniqueByExternalId.set(job.externalId, job);
+  }
+  for (const job of uniqueByExternalId.values()) {
+    uniqueByUrl.set(job.url, job);
+  }
+
+  return Array.from(uniqueByUrl.values());
+}
+
+function isUniqueConstraintViolation(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const anyErr = err as { code?: string };
+  return anyErr.code === '23505';
+}
+
+interface ScrapeError {
+  errorType: string;
+  message: string;
+}
+
+async function markErrorsResolved(employerId: number): Promise<void> {
+  try {
+    await db
+      .update(scrapeErrors)
+      .set({ resolvedAt: new Date() })
+      .where(and(eq(scrapeErrors.employerId, employerId), isNull(scrapeErrors.resolvedAt)));
+  } catch (err) {
+    console.error('[pipeline] failed to resolve scrape errors:', err);
   }
 }
 
