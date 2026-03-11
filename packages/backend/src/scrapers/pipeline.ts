@@ -46,7 +46,9 @@ const state: ScrapeState = {
   lastStartedAt: null,
 };
 
-export async function getScrapeStatus(): Promise<{
+const DEFAULT_STATUS_RECENT_RUNS = 10;
+
+export async function getScrapeStatus(limit = DEFAULT_STATUS_RECENT_RUNS): Promise<{
   running: boolean;
   lastResult: ScrapeResult | null;
   lastStartedAt: string | null;
@@ -58,7 +60,7 @@ export async function getScrapeStatus(): Promise<{
     lastResult: state.lastResult,
     runId: state.currentRunId ?? state.lastResult?.runId ?? null,
     lastStartedAt: state.lastStartedAt?.toISOString() ?? null,
-    recentRuns: await getRecentScrapeRuns(),
+    recentRuns: await getRecentScrapeRuns(limit),
   };
 }
 

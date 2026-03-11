@@ -236,6 +236,7 @@ Matching is case-insensitive. The `keyword_filters` table is editable; no code c
   - run id, start time, and completion summary (`jobsInserted`, `jobsUpdated`, `jobsRemoved`, `errors`)
   - per-employer request metrics (`requestAttempts`, `retryAttempts`)
   - unresolved error counts (`openErrors` total and `unresolvedErrors` per employer)
+  - optional `limit` query param (1..50, default 10) to bound `recentRuns`
 - On prod (Windows), the Node app runs as a Windows Service using `node-windows` or NSSM, ensuring the in-process scheduler survives reboots.
 
 ---
@@ -250,7 +251,7 @@ Base path: `/api`
 | GET | `/jobs/:id` | Single job detail |
 | GET | `/employers` | List all employers with active status |
 | POST | `/scrape` | Trigger scrape pipeline manually. Returns `{ runId, started }` |
-| GET | `/scrape/status` | Run metadata, request/retry metrics, unresolved errors, and recent run history |
+| GET | `/scrape/status?limit=n` | Run metadata, request/retry metrics, unresolved errors, and recent run history |
 
 All responses are JSON. Errors return `{ error: string, code: string }` with appropriate HTTP status.
 
