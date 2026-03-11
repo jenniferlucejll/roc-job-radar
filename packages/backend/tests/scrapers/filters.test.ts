@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { passesFilter, TECH_DEPARTMENTS } from '../../src/scrapers/filters.js';
+import { passesFilter, TECH_DEPARTMENTS, isInGreaterRochester } from '../../src/scrapers/filters.js';
 import type { ScrapedJob } from '../../src/types/index.js';
 
 function job(overrides: Partial<ScrapedJob> = {}): ScrapedJob {
@@ -94,6 +94,38 @@ describe('passesFilter', () => {
       expect(TECH_DEPARTMENTS).toContain('engineering');
       expect(TECH_DEPARTMENTS).toContain('information technology');
       expect(TECH_DEPARTMENTS).toContain('security');
+    });
+  });
+
+  describe('isInGreaterRochester', () => {
+    it('accepts Rochester city variants', () => {
+      expect(isInGreaterRochester('Rochester, NY')).toBe(true);
+      expect(isInGreaterRochester('Rochester, NY, USA')).toBe(true);
+      expect(isInGreaterRochester('Rochester New York')).toBe(true);
+      expect(isInGreaterRochester('Rochester, N.Y.')).toBe(true);
+    });
+
+    it('accepts suburb locations in the Rochester metro', () => {
+      expect(isInGreaterRochester('Henrietta, NY')).toBe(true);
+      expect(isInGreaterRochester('Greece, NY')).toBe(true);
+      expect(isInGreaterRochester('Monroe County, NY')).toBe(true);
+      expect(isInGreaterRochester('Winton Shores, NY')).toBe(true);
+    });
+
+    it('rejects non-Rochester New York locations', () => {
+      expect(isInGreaterRochester('Rochester, MN')).toBe(false);
+      expect(isInGreaterRochester('New York, NY')).toBe(false);
+      expect(isInGreaterRochester('West Rochester, NY')).toBe(false);
+      expect(isInGreaterRochester('Rochester, VT')).toBe(false);
+      expect(isInGreaterRochester('Rochester')).toBe(false);
+      expect(isInGreaterRochester('')).toBe(false);
+      expect(isInGreaterRochester(undefined)).toBe(false);
+    });
+
+    it('normalizes punctuation and spacing variations', () => {
+      expect(isInGreaterRochester('  Rochester   -   New  York  ')).toBe(true);
+      expect(isInGreaterRochester('Rochester  --  NY')).toBe(true);
+      expect(isInGreaterRochester('ROCHESTER, new YORK')).toBe(true);
     });
   });
 });

@@ -4,7 +4,6 @@ import { employers, keywordFilters } from './schema.js';
 const seedEmployers = [
   { key: 'paychex', name: 'Paychex', careerUrl: 'https://www.paychex.com/careers', atsType: 'jibe' },
   { key: 'wegmans', name: 'Wegmans', careerUrl: 'https://jobs.wegmans.com', atsType: 'custom' },
-  { key: 'esl', name: 'ESL Federal Credit Union', careerUrl: 'https://www.esl.org/about-esl/careers', atsType: 'custom' },
   { key: 'university-of-rochester', name: 'University of Rochester', careerUrl: 'https://www.rochester.edu/careers/', atsType: 'workday' },
   { key: 'l3harris', name: 'L3Harris', careerUrl: 'https://careers.l3harris.com', atsType: 'talentbrew' },
 ];

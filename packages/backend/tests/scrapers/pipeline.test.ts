@@ -73,6 +73,9 @@ vi.mock('../../src/config.js', () => ({
     },
   },
 }));
+vi.mock('../../src/scrapers/robots.js', () => ({
+  checkRobots: vi.fn().mockResolvedValue(true),
+}));
 
 describe('pipeline status hydration', () => {
   beforeEach(async () => {
@@ -204,4 +207,5 @@ describe('pipeline status hydration', () => {
     expect(status.lastResult).toBeNull();
     expect(status.recentRuns).toHaveLength(0);
   });
+
 });

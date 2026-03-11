@@ -90,7 +90,7 @@ describe('PaychexScraper', () => {
     expect(jobs).toHaveLength(0);
   });
 
-  it('uses GET with correct URL', async () => {
+  it('uses GET with Rochester-scoped URL params', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ jobs: [], totalCount: 0, count: 0 }),
@@ -99,12 +99,84 @@ describe('PaychexScraper', () => {
 
     await paychexScraper.scrape();
 
+    const firstUrl = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(firstUrl.origin + firstUrl.pathname).toBe('https://careers.paychex.com/api/jobs');
+    expect(firstUrl.searchParams.get('city')).toBe('Rochester');
+    expect(firstUrl.searchParams.get('state')).toBe('New York');
+    expect(firstUrl.searchParams.get('page')).toBe('1');
+
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://careers.paychex.com/api/jobs',
+      expect.stringContaining('https://careers.paychex.com/api/jobs'),
       expect.objectContaining({ headers: expect.objectContaining({ 'User-Agent': 'test-agent' }) }),
     );
     const callArgs = fetchMock.mock.calls[0][1] as RequestInit;
     expect(callArgs.method).toBeUndefined();
+  });
+
+  it('follows pagination and merges unique requisitions', async () => {
+    const page1 = {
+      jobs: [
+        {
+          data: {
+            req_id: 'R100',
+            title: 'Software Engineer',
+            apply_url: 'https://careers-paychex.icims.com/jobs/R100/login',
+            full_location: 'Rochester, NY, United States',
+          },
+        },
+        {
+          data: {
+            req_id: 'R101',
+            title: 'Data Engineer',
+            apply_url: 'https://careers-paychex.icims.com/jobs/R101/login',
+            full_location: 'Rochester, NY, United States',
+          },
+        },
+      ],
+      totalCount: 3,
+      count: 2,
+    };
+    const page2 = {
+      jobs: [
+        {
+          data: {
+            req_id: 'R101',
+            title: 'Data Engineer',
+            apply_url: 'https://careers-paychex.icims.com/jobs/R101/login',
+            full_location: 'Rochester, NY, United States',
+          },
+        },
+        {
+          data: {
+            req_id: 'R102',
+            title: 'Platform Engineer',
+            apply_url: 'https://careers-paychex.icims.com/jobs/R102/login',
+            full_location: 'Rochester, NY, United States',
+          },
+        },
+      ],
+      totalCount: 3,
+      count: 2,
+    };
+
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input));
+      const page = url.searchParams.get('page');
+      if (page === '1') {
+        return { ok: true, json: async () => page1 };
+      }
+      if (page === '2') {
+        return { ok: true, json: async () => page2 };
+      }
+      return { ok: true, json: async () => ({ jobs: [], totalCount: 3, count: 0 }) };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const jobs = await paychexScraper.scrape();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(jobs).toHaveLength(3);
+    expect(jobs.map((job) => job.externalId).sort()).toEqual(['R100', 'R101', 'R102']);
   });
 
   it('throws when the API returns a non-OK status', async () => {

@@ -40,9 +40,9 @@ export async function fetchWorkdayJobs(
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
   let offset = 0;
-  let total = Infinity;
+  let total: number | null = null;
 
-  while (offset < total) {
+  while (true) {
     await throttler.waitForNextSlot();
 
     const data = await fetchWithRetry(
@@ -67,7 +67,10 @@ export async function fetchWorkdayJobs(
       },
     );
 
-    total = data.total;
+    const pageCount = data.jobPostings.length;
+    if (Number.isFinite(data.total) && data.total > 0) {
+      total = total === null ? data.total : Math.max(total, data.total);
+    }
 
     for (const p of data.jobPostings) {
       // Extract the requisition ID from the end of externalPath (e.g. "_R261316")
@@ -85,8 +88,20 @@ export async function fetchWorkdayJobs(
       all.push(job);
     }
 
+    if (pageCount === 0) {
+      break;
+    }
+
     // Advance by actual count returned (handles last page returning fewer than LIMIT)
-    offset += data.jobPostings.length;
+    offset += pageCount;
+
+    if (total !== null && offset >= total) {
+      break;
+    }
+
+    if (pageCount < LIMIT) {
+      break;
+    }
   }
 
   return all;

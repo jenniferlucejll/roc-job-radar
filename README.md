@@ -20,6 +20,11 @@ The primary goal is to identify new job listings quickly so they can be reviewed
 
 Early development.
 
+## Current Scraper Scope
+
+- Active focus: Rochester, NY metro location filtering and stable employer adapters.
+- Employer coverage is intentionally narrow while the prototype hardens ingestion reliability.
+
 ## License
 
 MIT

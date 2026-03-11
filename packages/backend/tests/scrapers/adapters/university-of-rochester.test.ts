@@ -7,8 +7,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(__dirname, '..', 'fixtures');
 
 const singlePage = JSON.parse(readFileSync(join(fixturesDir, 'workday-single-page.json'), 'utf8'));
-const page1 = JSON.parse(readFileSync(join(fixturesDir, 'workday-page1.json'), 'utf8'));
-const page2 = JSON.parse(readFileSync(join(fixturesDir, 'workday-page2.json'), 'utf8'));
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -26,6 +24,14 @@ const { universityOfRochesterScraper } = await import(
 );
 
 describe('UniversityOfRochesterScraper', () => {
+  function posting(id: string) {
+    return {
+      title: `Role ${id}`,
+      externalPath: `/job/Rochester-NY/Role-${id}_${id}`,
+      locationsText: 'Rochester, NY, United States of America',
+    };
+  }
+
   it('has the correct employerKey', () => {
     expect(universityOfRochesterScraper.employerKey).toBe('university-of-rochester');
   });
@@ -51,16 +57,51 @@ describe('UniversityOfRochesterScraper', () => {
   });
 
   it('paginates until all jobs are fetched', async () => {
+    const page1Payload = {
+      total: 21,
+      jobPostings: Array.from({ length: 20 }, (_, i) => posting(`R1${String(i).padStart(2, '0')}`)),
+    };
+    const page2Payload = {
+      total: 21,
+      jobPostings: [posting('R200')],
+    };
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => page1 })
-      .mockResolvedValueOnce({ ok: true, json: async () => page2 });
+      .mockResolvedValueOnce({ ok: true, json: async () => page1Payload })
+      .mockResolvedValueOnce({ ok: true, json: async () => page2Payload });
     vi.stubGlobal('fetch', fetchMock);
 
     const jobs = await universityOfRochesterScraper.scrape();
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
-    expect(jobs).toHaveLength(3);
-    expect(jobs[2].externalId).toBe('R00003');
+    expect(jobs).toHaveLength(21);
+    expect(jobs.at(-1)?.externalId).toBe('R200');
+  });
+
+  it('continues paginating when Workday returns total=0 after page 1', async () => {
+    const page1Payload = {
+      total: 1310,
+      jobPostings: Array.from({ length: 20 }, (_, i) => posting(`R1${String(i).padStart(2, '0')}`)),
+    };
+    const page2Payload = {
+      total: 0,
+      jobPostings: Array.from({ length: 20 }, (_, i) => posting(`R2${String(i).padStart(2, '0')}`)),
+    };
+    const page3Payload = {
+      total: 0,
+      jobPostings: [posting('R300')],
+    };
+
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => page1Payload })
+      .mockResolvedValueOnce({ ok: true, json: async () => page2Payload })
+      .mockResolvedValueOnce({ ok: true, json: async () => page3Payload });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const jobs = await universityOfRochesterScraper.scrape();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(jobs).toHaveLength(41);
+    expect(jobs.at(-1)?.externalId).toBe('R300');
   });
 
   it('returns empty array when total is 0', async () => {

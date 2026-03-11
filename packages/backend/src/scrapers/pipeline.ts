@@ -3,7 +3,6 @@ import { db } from '../db/client.js';
 import {
   employers,
   jobs,
-  keywordFilters,
   scrapeErrors,
   scrapeRuns,
   scrapeRunEmployers,
@@ -17,8 +16,7 @@ import type {
 } from '../types/index.js';
 import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
-import { passesFilter } from './filters.js';
-import { eslScraper } from './adapters/esl.js';
+import { isInGreaterRochester } from './filters.js';
 import { paychexScraper } from './adapters/paychex.js';
 import { l3harrisScraper } from './adapters/l3harris.js';
 import { universityOfRochesterScraper } from './adapters/university-of-rochester.js';
@@ -29,6 +27,7 @@ import { wegmansScraper } from './adapters/wegmans.js';
 // ---------------------------------------------------------------------------
 
 const adapters = new Map<string, BaseScraper>();
+const DISABLED_EMPLOYER_KEYS = ['esl'];
 
 export function registerAdapter(adapter: BaseScraper): void {
   adapters.set(adapter.employerKey, adapter);
@@ -38,7 +37,6 @@ registerAdapter(paychexScraper);
 registerAdapter(l3harrisScraper);
 registerAdapter(universityOfRochesterScraper);
 registerAdapter(wegmansScraper);
-registerAdapter(eslScraper);
 
 // ---------------------------------------------------------------------------
 // Scrape state
@@ -133,18 +131,15 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
   let retryAttempts = 0;
   const employerSummaries: ScrapeEmployerSummary[] = [];
 
+  await deactivateDisabledEmployers();
+
   const activeEmployers = await db
     .select()
     .from(employers)
     .where(eq(employers.active, true));
 
-  const activeKeywords = await db
-    .select({ keyword: keywordFilters.keyword })
-    .from(keywordFilters)
-    .where(eq(keywordFilters.active, true));
   await startScrapeRunRecord(runId, startedAt);
 
-  const keywords = activeKeywords.map((r) => r.keyword);
   const employerIds = activeEmployers.map((employer) => employer.id);
 
   try {
@@ -214,7 +209,7 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
         });
         employerSummary.jobsScraped = scraped.length;
 
-        const filtered = scraped.filter((job) => passesFilter(job, keywords));
+        const filtered = scraped.filter((job) => isInGreaterRochester(job.location));
         employerSummary.jobsFiltered = filtered.length;
 
         const counts = await persistJobs(employer.id, filtered);
@@ -301,6 +296,21 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     };
     await finalizeScrapeRun(result);
     return result;
+  }
+}
+
+async function deactivateDisabledEmployers(): Promise<void> {
+  if (DISABLED_EMPLOYER_KEYS.length === 0) {
+    return;
+  }
+
+  try {
+    await db
+      .update(employers)
+      .set({ active: false })
+      .where(and(inArray(employers.key, DISABLED_EMPLOYER_KEYS), eq(employers.active, true)));
+  } catch (err) {
+    console.error('[pipeline] failed to deactivate disabled employers:', err);
   }
 }
 
