@@ -1,4 +1,5 @@
 import type { ScrapedJob } from '../types/index.js';
+import { createRequestThrottler } from './requestThrottle.js';
 
 export interface WorkdayConfig {
   /** Full POST endpoint, e.g. https://rochester.wd5.myworkdayjobs.com/wday/cxs/rochester/UR_Staff/jobs */
@@ -29,12 +30,16 @@ export async function fetchWorkdayJobs(
   wdConfig: WorkdayConfig,
   userAgent: string,
   timeoutMs: number,
+  requestIntervalMs = 1000,
 ): Promise<ScrapedJob[]> {
+  const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
   let offset = 0;
   let total = Infinity;
 
   while (offset < total) {
+    await throttler.waitForNextSlot();
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 

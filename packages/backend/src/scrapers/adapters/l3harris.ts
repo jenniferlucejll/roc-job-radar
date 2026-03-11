@@ -19,7 +19,12 @@ export class L3HarrisScraper extends BaseScraper {
   readonly employerKey = 'l3harris';
 
   async scrape(): Promise<ScrapedJob[]> {
-    return fetchTalentBrewJobs(TB_CONFIG, config.scraper.userAgent, config.scraper.timeoutMs);
+    return fetchTalentBrewJobs(
+      TB_CONFIG,
+      config.scraper.userAgent,
+      config.scraper.timeoutMs,
+      config.scraper.requestIntervalMs,
+    );
   }
 }
 

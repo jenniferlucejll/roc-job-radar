@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { createRequestThrottler } from './requestThrottle.js';
 import type { ScrapedJob } from '../types/index.js';
 
 export interface TalentBrewConfig {
@@ -19,11 +20,15 @@ export async function fetchTalentBrewJobs(
   tbConfig: TalentBrewConfig,
   userAgent: string,
   timeoutMs: number,
+  requestIntervalMs = 1000,
 ): Promise<ScrapedJob[]> {
+  const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
   let page = 1;
 
   while (true) {
+    await throttler.waitForNextSlot();
+
     const url = new URL(`${tbConfig.baseUrl}/en/search-jobs/results`);
     url.searchParams.set('CurrentPage', String(page));
     url.searchParams.set('Keywords', tbConfig.locationSlug);

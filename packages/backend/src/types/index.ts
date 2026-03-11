@@ -14,6 +14,7 @@ export interface ScrapedJob {
 
 /** Summary returned by the scrape pipeline after a full run. */
 export interface ScrapeResult {
+  runId: string;
   startedAt: Date;
   finishedAt: Date;
   employersRun: number;
@@ -21,4 +22,23 @@ export interface ScrapeResult {
   jobsUpdated: number;
   jobsRemoved: number;
   errors: number;
+  employers: ScrapeEmployerSummary[];
+}
+
+export interface ScrapeEmployerSummary {
+  employerId: number;
+  employerKey: string;
+  employerName: string;
+  status: 'success' | 'missing_adapter' | 'robots_blocked' | 'error';
+  jobsScraped: number;
+  jobsFiltered: number;
+  jobsInserted: number;
+  jobsUpdated: number;
+  jobsRemoved: number;
+  errors: ScrapeErrorDetail[];
+}
+
+export interface ScrapeErrorDetail {
+  errorType: string;
+  message: string;
 }

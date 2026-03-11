@@ -27,6 +27,7 @@ export const jobs = pgTable('jobs', {
   removedAt: timestamp('removed_at'),
 }, (table) => [
   unique('jobs_employer_external_id_unique').on(table.employerId, table.externalId),
+  unique('jobs_url_unique').on(table.url),
 ]);
 
 export const scrapeErrors = pgTable('scrape_errors', {
@@ -35,6 +36,7 @@ export const scrapeErrors = pgTable('scrape_errors', {
   errorType: text('error_type').notNull(),
   message: text('message').notNull(),
   createdAt: timestamp('created_at').notNull().defaultNow(),
+  resolvedAt: timestamp('resolved_at'),
 });
 
 export const keywordFilters = pgTable('keyword_filters', {

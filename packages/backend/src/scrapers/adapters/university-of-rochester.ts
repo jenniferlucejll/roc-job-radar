@@ -18,7 +18,12 @@ export class UniversityOfRochesterScraper extends BaseScraper {
   readonly employerKey = 'university-of-rochester';
 
   async scrape(): Promise<ScrapedJob[]> {
-    return fetchWorkdayJobs(WD_CONFIG, config.scraper.userAgent, config.scraper.timeoutMs);
+    return fetchWorkdayJobs(
+      WD_CONFIG,
+      config.scraper.userAgent,
+      config.scraper.timeoutMs,
+      config.scraper.requestIntervalMs,
+    );
   }
 }
 

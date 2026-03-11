@@ -2,10 +2,11 @@ import { eq, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { employers, jobs, keywordFilters, scrapeErrors } from '../db/schema.js';
 import { config } from '../config.js';
-import type { ScrapeResult } from '../types/index.js';
+import type { ScrapeEmployerSummary, ScrapeResult } from '../types/index.js';
 import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
 import { passesFilter } from './filters.js';
+import { eslScraper } from './adapters/esl.js';
 import { paychexScraper } from './adapters/paychex.js';
 import { l3harrisScraper } from './adapters/l3harris.js';
 import { universityOfRochesterScraper } from './adapters/university-of-rochester.js';
@@ -25,18 +26,21 @@ registerAdapter(paychexScraper);
 registerAdapter(l3harrisScraper);
 registerAdapter(universityOfRochesterScraper);
 registerAdapter(wegmansScraper);
+registerAdapter(eslScraper);
 
 // ---------------------------------------------------------------------------
 // Scrape state
 // ---------------------------------------------------------------------------
 
 interface ScrapeState {
+  currentRunId: string | null;
   running: boolean;
   lastResult: ScrapeResult | null;
   lastStartedAt: Date | null;
 }
 
 const state: ScrapeState = {
+  currentRunId: null,
   running: false,
   lastResult: null,
   lastStartedAt: null,
@@ -46,25 +50,31 @@ export function getScrapeStatus(): {
   running: boolean;
   lastResult: ScrapeResult | null;
   lastStartedAt: string | null;
+  runId: string | null;
 } {
   return {
     running: state.running,
     lastResult: state.lastResult,
+    runId: state.currentRunId ?? state.lastResult?.runId ?? null,
     lastStartedAt: state.lastStartedAt?.toISOString() ?? null,
   };
 }
 
 /**
  * Trigger a pipeline run in the background.
- * Returns false if a run is already in progress.
+ * Returns a run ID when started, or null if a run is already in progress.
  */
-export function triggerPipeline(): boolean {
-  if (state.running) return false;
+let runSequence = 0;
+
+export function triggerPipeline(): string | null {
+  if (state.running) return null;
 
   state.running = true;
+  state.currentRunId = `scrape-${Date.now()}-${++runSequence}`;
   state.lastStartedAt = new Date();
+  const runId = state.currentRunId;
 
-  runPipeline()
+  runPipeline(runId)
     .then((result) => {
       state.lastResult = result;
     })
@@ -73,22 +83,24 @@ export function triggerPipeline(): boolean {
     })
     .finally(() => {
       state.running = false;
+      state.currentRunId = null;
     });
 
-  return true;
+  return runId;
 }
 
 // ---------------------------------------------------------------------------
 // Pipeline internals
 // ---------------------------------------------------------------------------
 
-async function runPipeline(): Promise<ScrapeResult> {
+async function runPipeline(runId: string): Promise<ScrapeResult> {
   const startedAt = new Date();
   let employersRun = 0;
   let jobsInserted = 0;
   let jobsUpdated = 0;
   let jobsRemoved = 0;
   let errors = 0;
+  const employerSummaries: ScrapeEmployerSummary[] = [];
 
   const activeEmployers = await db
     .select()
@@ -103,13 +115,34 @@ async function runPipeline(): Promise<ScrapeResult> {
   const keywords = activeKeywords.map((r) => r.keyword);
 
   for (const employer of activeEmployers) {
+    employersRun++;
+
     const adapter = adapters.get(employer.key);
+    const employerSummary: ScrapeEmployerSummary = {
+      employerId: employer.id,
+      employerKey: employer.key,
+      employerName: employer.name,
+      status: 'success',
+      jobsScraped: 0,
+      jobsFiltered: 0,
+      jobsInserted: 0,
+      jobsUpdated: 0,
+      jobsRemoved: 0,
+      errors: [],
+    };
+
     if (!adapter) {
+      employerSummary.status = 'missing_adapter';
+      employerSummary.errors.push({
+        errorType: 'missing_adapter',
+        message: `No adapter registered for employer key ${employer.key}`,
+      });
+      errors++;
+      await logError(employer.id, 'missing_adapter', `No adapter registered for employer key ${employer.key}`);
       console.warn(`[pipeline] Missing adapter for employer key: ${employer.key}`);
+      employerSummaries.push(employerSummary);
       continue;
     }
-
-    employersRun++;
 
     try {
       const allowed = await checkRobots(
@@ -119,28 +152,45 @@ async function runPipeline(): Promise<ScrapeResult> {
       );
 
       if (!allowed) {
+        employerSummary.status = 'robots_blocked';
+        employerSummary.errors.push({
+          errorType: 'robots_blocked',
+          message: `robots.txt disallows ${employer.careerUrl}`,
+        });
         await logError(employer.id, 'robots_blocked', `robots.txt disallows ${employer.careerUrl}`);
         errors++;
+        employerSummaries.push(employerSummary);
         continue;
       }
 
       const scraped = await adapter.scrape();
+      employerSummary.jobsScraped = scraped.length;
+
       const filtered = scraped.filter((job) => passesFilter(job, keywords));
+      employerSummary.jobsFiltered = filtered.length;
 
       const counts = await persistJobs(employer.id, filtered);
       jobsInserted += counts.inserted;
       jobsUpdated += counts.updated;
       jobsRemoved += counts.removed;
+      employerSummary.jobsInserted = counts.inserted;
+      employerSummary.jobsUpdated = counts.updated;
+      employerSummary.jobsRemoved = counts.removed;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const errorType = classifyError(err);
       await logError(employer.id, errorType, message);
       errors++;
+      employerSummary.status = 'error';
+      employerSummary.errors.push({ errorType, message });
       console.error(`[pipeline] ${employer.key} failed: ${message}`);
+    } finally {
+      employerSummaries.push(employerSummary);
     }
   }
 
   return {
+    runId,
     startedAt,
     finishedAt: new Date(),
     employersRun,
@@ -148,6 +198,7 @@ async function runPipeline(): Promise<ScrapeResult> {
     jobsUpdated,
     jobsRemoved,
     errors,
+    employers: employerSummaries,
   };
 }
 
