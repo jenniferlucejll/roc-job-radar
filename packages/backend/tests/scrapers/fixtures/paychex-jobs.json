@@ -1,0 +1,44 @@
+{
+  "jobs": [
+    {
+      "slug": "software-engineer-rochester-ny",
+      "req_id": "R5001",
+      "title": "Software Engineer",
+      "description": "<p>Build great software at Paychex.</p>",
+      "city": "Rochester",
+      "state": "NY",
+      "country": "United States",
+      "full_location": "Rochester, NY, United States",
+      "department": "Technology",
+      "categories": ["Engineering"],
+      "tags3": "Hybrid",
+      "posted_date": "2026-03-01T00:00:00Z",
+      "apply_url": "https://careers.paychex.com/careers/job/R5001",
+      "salary_value": "$90,000 - $120,000",
+      "employment_type": "FULL_TIME",
+      "client_code": "paychex",
+      "hiring_organization": "Paychex"
+    },
+    {
+      "slug": "data-engineer-rochester-ny",
+      "req_id": "R5002",
+      "title": "Data Engineer",
+      "description": "<p>Work with data pipelines at scale.</p>",
+      "city": "Rochester",
+      "state": "NY",
+      "country": "United States",
+      "full_location": "Rochester, NY, United States",
+      "department": "Data & Analytics",
+      "categories": ["Engineering"],
+      "tags3": "On-Site",
+      "posted_date": "2026-03-05T00:00:00Z",
+      "apply_url": "https://careers.paychex.com/careers/job/R5002",
+      "salary_value": null,
+      "employment_type": "FULL_TIME",
+      "client_code": "paychex",
+      "hiring_organization": "Paychex"
+    }
+  ],
+  "totalCount": 2,
+  "count": 2
+}

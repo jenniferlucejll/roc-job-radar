@@ -6,6 +6,8 @@ import type { ScrapeResult } from '../types/index.js';
 import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
 import { passesFilter } from './filters.js';
+import { paychexScraper } from './adapters/paychex.js';
+import { universityOfRochesterScraper } from './adapters/university-of-rochester.js';
 
 // ---------------------------------------------------------------------------
 // Adapter registry
@@ -16,6 +18,9 @@ const adapters = new Map<string, BaseScraper>();
 export function registerAdapter(adapter: BaseScraper): void {
   adapters.set(adapter.employerKey, adapter);
 }
+
+registerAdapter(paychexScraper);
+registerAdapter(universityOfRochesterScraper);
 
 // ---------------------------------------------------------------------------
 // Scrape state

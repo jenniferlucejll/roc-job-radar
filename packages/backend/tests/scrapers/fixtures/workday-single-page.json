@@ -1,0 +1,21 @@
+{
+  "jobPostings": [
+    {
+      "title": "Software Engineer",
+      "externalPath": "/job/Rochester-NY/Software-Engineer_R00001",
+      "locationsText": "Rochester, NY, United States of America",
+      "postedOn": "Posted 3 Days Ago",
+      "jobPostingId": "R00001",
+      "bulletFields": ["Information Technology"]
+    },
+    {
+      "title": "Data Analyst",
+      "externalPath": "/job/Rochester-NY/Data-Analyst_R00002",
+      "locationsText": "Rochester, NY, United States of America",
+      "postedOn": "Posted 1 Day Ago",
+      "jobPostingId": "R00002",
+      "bulletFields": []
+    }
+  ],
+  "total": 2
+}
