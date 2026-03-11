@@ -1,6 +1,7 @@
 import type { ScrapedJob } from '../types/index.js';
 import { createRequestThrottler } from './requestThrottle.js';
 import { fetchWithRetry } from './requestRetry.js';
+import type { ScrapeContext } from './base.js';
 
 export interface WorkdayConfig {
   /** Full POST endpoint, e.g. https://rochester.wd5.myworkdayjobs.com/wday/cxs/rochester/UR_Staff/jobs */
@@ -34,6 +35,7 @@ export async function fetchWorkdayJobs(
   requestIntervalMs = 1000,
   maxRetryAttempts = 3,
   retryBaseDelayMs = 1000,
+  context?: ScrapeContext,
 ): Promise<ScrapedJob[]> {
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
@@ -61,6 +63,7 @@ export async function fetchWorkdayJobs(
         timeoutMs,
         maxAttempts: maxRetryAttempts,
         baseDelayMs: retryBaseDelayMs,
+        onAttempt: context?.onRequestAttempt,
       },
     );
 

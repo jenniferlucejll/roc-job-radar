@@ -6,7 +6,7 @@
 // Pagination: loop pages until hasJobs: false
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
-import { BaseScraper } from '../base.js';
+import { BaseScraper, ScrapeContext } from '../base.js';
 import { fetchTalentBrewJobs } from '../talentbrew.js';
 
 const TB_CONFIG = {
@@ -18,7 +18,7 @@ const TB_CONFIG = {
 export class L3HarrisScraper extends BaseScraper {
   readonly employerKey = 'l3harris';
 
-  async scrape(): Promise<ScrapedJob[]> {
+  async scrape(context?: ScrapeContext): Promise<ScrapedJob[]> {
     return fetchTalentBrewJobs(
       TB_CONFIG,
       config.scraper.userAgent,
@@ -26,6 +26,7 @@ export class L3HarrisScraper extends BaseScraper {
       config.scraper.requestIntervalMs,
       config.scraper.maxRetryAttempts,
       config.scraper.retryBaseDelayMs,
+      context,
     );
   }
 }

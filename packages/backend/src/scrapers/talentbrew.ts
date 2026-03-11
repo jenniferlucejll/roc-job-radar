@@ -1,5 +1,6 @@
 import { load } from 'cheerio';
 import { createRequestThrottler } from './requestThrottle.js';
+import type { ScrapeContext } from './base.js';
 import type { ScrapedJob } from '../types/index.js';
 import { fetchWithRetry } from './requestRetry.js';
 
@@ -24,6 +25,7 @@ export async function fetchTalentBrewJobs(
   requestIntervalMs = 1000,
   maxRetryAttempts = 3,
   retryBaseDelayMs = 1000,
+  context?: ScrapeContext,
 ): Promise<ScrapedJob[]> {
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
@@ -53,6 +55,7 @@ export async function fetchTalentBrewJobs(
         timeoutMs,
         maxAttempts: maxRetryAttempts,
         baseDelayMs: retryBaseDelayMs,
+        onAttempt: context?.onRequestAttempt,
       },
     );
     if (!data.hasJobs) break;

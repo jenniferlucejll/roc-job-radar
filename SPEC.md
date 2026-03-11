@@ -171,7 +171,7 @@ interface ScrapedJob {
 
 abstract class BaseScraper {
   abstract employerKey: string;       // Matches employers.scraper_adapter
-  abstract scrape(): Promise<ScrapedJob[]>;
+  abstract scrape(context?: { onRequestAttempt?: (info: { attempt: number; maxAttempts: number; url: string }) => void }): Promise<ScrapedJob[]>;
 
   // Optional: override to customize dedup strategy
   resolveExternalId(job: ScrapedJob): string {
@@ -232,7 +232,10 @@ Matching is case-insensitive. The `keyword_filters` table is editable; no code c
 - **In-process scheduler** using `node-cron` inside the Node server.
 - Default schedule: every 6 hours (`0 */6 * * *`) — configurable via `SCRAPE_CRON` env var.
 - **Manual trigger:** `POST /api/scrape` runs the pipeline immediately (idempotent — only one run at a time).
-- **Status:** `GET /api/scrape/status` returns last run time, job counts, and any errors from last run.
+- **Status:** `GET /api/scrape/status` returns last run metadata and per-run scrape metrics:
+  - run id, start time, and completion summary (`jobsInserted`, `jobsUpdated`, `jobsRemoved`, `errors`)
+  - per-employer request metrics (`requestAttempts`, `retryAttempts`)
+  - unresolved error counts (`openErrors` total and `unresolvedErrors` per employer)
 - On prod (Windows), the Node app runs as a Windows Service using `node-windows` or NSSM, ensuring the in-process scheduler survives reboots.
 
 ---
@@ -247,7 +250,7 @@ Base path: `/api`
 | GET | `/jobs/:id` | Single job detail |
 | GET | `/employers` | List all employers with active status |
 | POST | `/scrape` | Trigger scrape pipeline manually. Returns `{ runId, started }` |
-| GET | `/scrape/status` | Last scrape run metadata: timestamp, duration, per-employer job counts, errors |
+| GET | `/scrape/status` | Last scrape run metadata + request/retry metrics + unresolved error counts |
 
 All responses are JSON. Errors return `{ error: string, code: string }` with appropriate HTTP status.
 

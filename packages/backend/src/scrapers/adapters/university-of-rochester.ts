@@ -6,7 +6,7 @@
 // Scraping: Workday JSON API (POST with pagination)
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
-import { BaseScraper } from '../base.js';
+import { BaseScraper, ScrapeContext } from '../base.js';
 import { fetchWorkdayJobs } from '../workday.js';
 
 const WD_CONFIG = {
@@ -17,7 +17,7 @@ const WD_CONFIG = {
 export class UniversityOfRochesterScraper extends BaseScraper {
   readonly employerKey = 'university-of-rochester';
 
-  async scrape(): Promise<ScrapedJob[]> {
+  async scrape(context?: ScrapeContext): Promise<ScrapedJob[]> {
     return fetchWorkdayJobs(
       WD_CONFIG,
       config.scraper.userAgent,
@@ -25,6 +25,7 @@ export class UniversityOfRochesterScraper extends BaseScraper {
       config.scraper.requestIntervalMs,
       config.scraper.maxRetryAttempts,
       config.scraper.retryBaseDelayMs,
+      context,
     );
   }
 }

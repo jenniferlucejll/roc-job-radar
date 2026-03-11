@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { employers, jobs, keywordFilters, scrapeErrors } from '../db/schema.js';
 import { config } from '../config.js';
@@ -100,6 +100,8 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
   let jobsUpdated = 0;
   let jobsRemoved = 0;
   let errors = 0;
+  let requestAttempts = 0;
+  let retryAttempts = 0;
   const employerSummaries: ScrapeEmployerSummary[] = [];
 
   const activeEmployers = await db
@@ -113,6 +115,7 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     .where(eq(keywordFilters.active, true));
 
   const keywords = activeKeywords.map((r) => r.keyword);
+  const employerIds = activeEmployers.map((employer) => employer.id);
 
   for (const employer of activeEmployers) {
     employersRun++;
@@ -128,7 +131,19 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
       jobsInserted: 0,
       jobsUpdated: 0,
       jobsRemoved: 0,
+      requestAttempts: 0,
+      retryAttempts: 0,
+      unresolvedErrors: 0,
       errors: [],
+    };
+
+    const onRequestAttempt = (attemptInfo: { attempt: number }): void => {
+      employerSummary.requestAttempts++;
+      requestAttempts++;
+      if (attemptInfo.attempt > 1) {
+        employerSummary.retryAttempts++;
+        retryAttempts++;
+      }
     };
 
     if (!adapter) {
@@ -163,7 +178,9 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
         continue;
       }
 
-      const scraped = await adapter.scrape();
+      const scraped = await adapter.scrape({
+        onRequestAttempt,
+      });
       employerSummary.jobsScraped = scraped.length;
 
       const filtered = scraped.filter((job) => passesFilter(job, keywords));
@@ -197,6 +214,14 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     }
   }
 
+  const openErrorCounts = await getOpenErrorCountsByEmployer(employerIds);
+  let openErrors = 0;
+  for (const summary of employerSummaries) {
+    const open = openErrorCounts.get(summary.employerId) ?? 0;
+    summary.unresolvedErrors = open;
+    openErrors += open;
+  }
+
   return {
     runId,
     startedAt,
@@ -206,8 +231,35 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     jobsUpdated,
     jobsRemoved,
     errors,
+    requestAttempts,
+    retryAttempts,
+    openErrors,
     employers: employerSummaries,
   };
+}
+
+async function getOpenErrorCountsByEmployer(employerIds: number[]): Promise<Map<number, number>> {
+  if (employerIds.length === 0) {
+    return new Map();
+  }
+
+  const rows = await db
+    .select({
+      employerId: scrapeErrors.employerId,
+      count: count(),
+    })
+    .from(scrapeErrors)
+    .where(and(inArray(scrapeErrors.employerId, employerIds), isNull(scrapeErrors.resolvedAt)))
+    .groupBy(scrapeErrors.employerId);
+
+  const counts = new Map<number, number>();
+  for (const row of rows) {
+    const id = row.employerId;
+    if (id !== null) {
+      counts.set(id, Number(row.count));
+    }
+  }
+  return counts;
 }
 
 async function persistJobs(

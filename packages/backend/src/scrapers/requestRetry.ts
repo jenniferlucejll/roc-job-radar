@@ -2,6 +2,12 @@ import { sleep } from './requestThrottle.js';
 
 export type RetryParseFn<T> = (res: Response) => Promise<T>;
 
+export type RequestAttemptInfo = {
+  attempt: number;
+  maxAttempts: number;
+  url: string;
+};
+
 interface RequestRetryOptions {
   timeoutMs: number;
   method?: string;
@@ -9,6 +15,7 @@ interface RequestRetryOptions {
   body?: BodyInit | null;
   maxAttempts?: number;
   baseDelayMs?: number;
+  onAttempt?: (info: RequestAttemptInfo) => void;
 }
 
 const DEFAULT_MAX_ATTEMPTS = 3;
@@ -27,6 +34,11 @@ export async function fetchWithRetry<T>(
 
   while (attempt < maxAttempts) {
     attempt += 1;
+    options.onAttempt?.({
+      attempt,
+      maxAttempts,
+      url,
+    });
 
     try {
       const controller = new AbortController();

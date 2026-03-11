@@ -12,6 +12,7 @@ describe('fetchWithRetry', () => {
       { ok: false, status: 502 },
       { ok: true, json: async () => ({ ok: true }) },
     ];
+    const attempts: Array<{ attempt: number; maxAttempts: number; url: string }> = [];
 
     const fetchMock = vi.fn().mockImplementation(async () => {
       const current = mockResponses.shift();
@@ -27,10 +28,16 @@ describe('fetchWithRetry', () => {
       timeoutMs: 1000,
       maxAttempts: 3,
       baseDelayMs: 10,
+      onAttempt: (info) => attempts.push(info),
     });
 
     const result = await promise;
     expect(result).toEqual({ ok: true });
+    expect(attempts).toEqual([
+      { attempt: 1, maxAttempts: 3, url: 'https://example.com' },
+      { attempt: 2, maxAttempts: 3, url: 'https://example.com' },
+      { attempt: 3, maxAttempts: 3, url: 'https://example.com' },
+    ]);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 

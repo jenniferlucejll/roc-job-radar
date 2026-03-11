@@ -6,7 +6,7 @@
 // Note: each element in jobs[] wraps the actual fields under a "data" key
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
-import { BaseScraper } from '../base.js';
+import { BaseScraper, ScrapeContext } from '../base.js';
 import { fetchWithRetry } from '../requestRetry.js';
 
 const JOBS_URL = 'https://careers.paychex.com/api/jobs';
@@ -43,7 +43,7 @@ function toRemoteStatus(tags: string[] | undefined): ScrapedJob['remoteStatus'] 
 export class PaychexScraper extends BaseScraper {
   readonly employerKey = 'paychex';
 
-  async scrape(): Promise<ScrapedJob[]> {
+  async scrape(context?: ScrapeContext): Promise<ScrapedJob[]> {
     const data = await fetchWithRetry(
       JOBS_URL,
       async (res) => (await res.json()) as JibeResponse,
@@ -52,6 +52,7 @@ export class PaychexScraper extends BaseScraper {
         timeoutMs: config.scraper.timeoutMs,
         maxAttempts: config.scraper.maxRetryAttempts,
         baseDelayMs: config.scraper.retryBaseDelayMs,
+        onAttempt: context?.onRequestAttempt,
       },
     );
 

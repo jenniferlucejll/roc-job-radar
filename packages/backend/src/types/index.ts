@@ -22,6 +22,9 @@ export interface ScrapeResult {
   jobsUpdated: number;
   jobsRemoved: number;
   errors: number;
+  requestAttempts: number;
+  retryAttempts: number;
+  openErrors: number;
   employers: ScrapeEmployerSummary[];
 }
 
@@ -35,6 +38,9 @@ export interface ScrapeEmployerSummary {
   jobsInserted: number;
   jobsUpdated: number;
   jobsRemoved: number;
+  requestAttempts: number;
+  retryAttempts: number;
+  unresolvedErrors: number;
   errors: ScrapeErrorDetail[];
 }
 

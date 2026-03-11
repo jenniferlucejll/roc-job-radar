@@ -7,7 +7,7 @@
 import { load } from 'cheerio';
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
-import { BaseScraper } from '../base.js';
+import { BaseScraper, ScrapeContext } from '../base.js';
 import { fetchWithRetry } from '../requestRetry.js';
 
 const CAREERS_URL = 'https://www.esl.org/about-esl/careers';
@@ -28,7 +28,7 @@ interface CheerioAnchorLike {
 export class EslScraper extends BaseScraper {
   readonly employerKey = 'esl';
 
-  async scrape(): Promise<ScrapedJob[]> {
+  async scrape(context?: ScrapeContext): Promise<ScrapedJob[]> {
     const html = await fetchWithRetry(
       CAREERS_URL,
       async (res) => res.text(),
@@ -37,6 +37,7 @@ export class EslScraper extends BaseScraper {
         timeoutMs: config.scraper.timeoutMs,
         maxAttempts: config.scraper.maxRetryAttempts,
         baseDelayMs: config.scraper.retryBaseDelayMs,
+        onAttempt: context?.onRequestAttempt,
       },
     );
 
