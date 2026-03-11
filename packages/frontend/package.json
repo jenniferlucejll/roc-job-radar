@@ -1,0 +1,6 @@
+{
+  "name": "@roc-job-radar/frontend",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Frontend — deferred. See SPEC.md."
+}

@@ -1,0 +1,14 @@
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: .
+      dockerfile: packages/backend/Dockerfile
+    command: npx tsx watch src/index.ts
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./packages/backend/src:/app/packages/backend/src:ro
