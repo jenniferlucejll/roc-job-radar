@@ -10,7 +10,6 @@ export interface WorkdayConfig {
 const LIMIT = 20;
 
 interface WorkdayPosting {
-  jobPostingId: string;
   title: string;
   externalPath: string;
   locationsText?: string;
@@ -64,12 +63,17 @@ export async function fetchWorkdayJobs(
     total = data.total;
 
     for (const p of data.jobPostings) {
+      // Extract the requisition ID from the end of externalPath (e.g. "_R261316")
+      // Fall back to the full path if the pattern doesn't match.
+      const idMatch = p.externalPath.match(/_([A-Z0-9]+)$/);
+      const externalId = idMatch ? idMatch[1] : p.externalPath;
+
       const job: ScrapedJob = {
-        externalId: p.jobPostingId,
+        externalId,
         title: p.title,
         url: `${wdConfig.baseUrl}/en-US${p.externalPath}`,
         location: p.locationsText?.trim() || undefined,
-        department: p.bulletFields?.[0] || undefined,
+        // department not available from the Workday listing API
       };
       all.push(job);
     }

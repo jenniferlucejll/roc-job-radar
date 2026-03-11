@@ -47,17 +47,7 @@ describe('UniversityOfRochesterScraper', () => {
       'https://rochester.wd5.myworkdayjobs.com/en-US/job/Rochester-NY/Software-Engineer_R00001',
     );
     expect(first.location).toBe('Rochester, NY, United States of America');
-    expect(first.department).toBe('Information Technology');
-  });
-
-  it('sets department to undefined when bulletFields is empty', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue({ ok: true, json: async () => singlePage }),
-    );
-
-    const jobs = await universityOfRochesterScraper.scrape();
-    expect(jobs[1].department).toBeUndefined();
+    expect(first.department).toBeUndefined(); // department not available from Workday listing API
   });
 
   it('paginates until all jobs are fetched', async () => {
