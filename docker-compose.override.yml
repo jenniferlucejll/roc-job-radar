@@ -1,9 +1,13 @@
 services:
   postgres:
+    env_file:
+      - .env.development
     ports:
       - "5432:5432"
 
   backend:
+    env_file:
+      - .env.development
     build:
       context: .
       dockerfile: packages/backend/Dockerfile

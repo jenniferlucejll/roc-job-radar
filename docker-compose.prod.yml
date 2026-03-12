@@ -1,0 +1,27 @@
+# Production overrides — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+
+services:
+  postgres:
+    env_file:
+      - .env.production
+    restart: unless-stopped
+
+  backend:
+    env_file:
+      - .env.production
+    # Run migrations then start the compiled server
+    command: >
+      sh -c "npx tsx src/db/migrate.ts && node dist/index.js"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: packages/frontend/Dockerfile
+    ports:
+      - "3001:80"
+    depends_on:
+      backend:
+        condition: service_started
+    restart: unless-stopped

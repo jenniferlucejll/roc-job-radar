@@ -2,14 +2,14 @@ FROM node:22-alpine
 
 WORKDIR /app
 
-# Copy root workspace manifest
-COPY package.json ./
+# Copy root workspace manifest and lockfile
+COPY package.json package-lock.json ./
 
-# Copy backend package files
+# Copy backend package manifest
 COPY packages/backend/package.json ./packages/backend/
 
-# Install all workspace deps
-RUN npm install --workspace=packages/backend
+# Install backend workspace deps (locked)
+RUN npm ci --workspace=packages/backend
 
 # Copy backend source
 COPY packages/backend/ ./packages/backend/

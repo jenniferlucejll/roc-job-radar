@@ -1,8 +1,6 @@
 services:
   postgres:
     image: postgres:16-alpine
-    env_file:
-      - .env.development
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -15,8 +13,6 @@ services:
     build:
       context: .
       dockerfile: packages/backend/Dockerfile
-    env_file:
-      - .env.development
     environment:
       POSTGRES_HOST: postgres
       SERVER_HOST: 0.0.0.0
