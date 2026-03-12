@@ -6,6 +6,16 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+// Sweep expired entries every hour so the Map doesn't grow unbounded in long-running processes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (now - entry.fetchedAt >= CACHE_TTL_MS) {
+      cache.delete(key);
+    }
+  }
+}, 60 * 60 * 1000).unref();
+
 /**
  * Check whether the given career URL is allowed by the employer's robots.txt.
  * Results are cached per origin for 24 hours.

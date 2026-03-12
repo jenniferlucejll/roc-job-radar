@@ -50,6 +50,10 @@ jobsRouter.get('/', async (req, res, next) => {
     }
 
     if (typeof q === 'string' && q.trim()) {
+      if (q.length > 200) {
+        res.status(400).json({ error: 'Search query too long', code: 'INVALID_QUERY' });
+        return;
+      }
       conditions.push(ilike(jobs.title, `%${q.trim()}%`));
     }
 

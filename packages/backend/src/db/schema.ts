@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, integer, timestamp, unique } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, boolean, integer, timestamp, unique, index } from 'drizzle-orm/pg-core';
 
 export const employers = pgTable('employers', {
   id: serial('id').primaryKey(),
@@ -28,6 +28,9 @@ export const jobs = pgTable('jobs', {
 }, (table) => [
   unique('jobs_employer_external_id_unique').on(table.employerId, table.externalId),
   unique('jobs_url_unique').on(table.url),
+  index('jobs_employer_id_idx').on(table.employerId),
+  index('jobs_removed_at_idx').on(table.removedAt),
+  index('jobs_first_seen_at_idx').on(table.firstSeenAt),
 ]);
 
 export const scrapeErrors = pgTable('scrape_errors', {

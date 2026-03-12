@@ -188,6 +188,7 @@ Authorship should remain the git user configured in the repository.
 
 - **TypeScript `strict: true`** everywhere. No `any` without a comment explaining why.
 - **Drizzle schema is the single source of truth** for DB structure. Never hand-edit migration SQL.
+- **Never hand-edit `_journal.json`.** The `when` timestamps in `packages/backend/src/db/migrations/meta/_journal.json` are set by `drizzle-kit generate` and must not be modified manually. Drizzle's migrator uses these timestamps as a watermark — editing them can silently cause migrations to be skipped. All schema changes must go through `npm run db:generate` (from `packages/backend`).
 - **Each employer adapter is self-contained.** All knowledge about a specific employer's site lives in its adapter file. Include a header comment documenting the ATS type, career URL, and `externalId` strategy used.
 - **Errors in scrapers are caught and logged, never thrown up to the pipeline.** The pipeline continues on per-employer failure.
 - **robots.txt must be checked before every adapter run.** Never bypass this.

@@ -90,11 +90,17 @@ export async function getScrapeStatus(limit = DEFAULT_STATUS_RECENT_RUNS): Promi
 /**
  * Trigger a pipeline run in the background.
  * Returns a run ID when started, or null if a run is already in progress.
+ * Checks both in-memory state and the DB to handle restart scenarios where
+ * in-memory state was lost but a run is still marked as running in the DB.
  */
 let runSequence = 0;
 
-export function triggerPipeline(): string | null {
+export async function triggerPipeline(): Promise<string | null> {
   if (state.running) return null;
+
+  // Guard against post-restart duplicates: check DB for an in-flight run
+  const [runningRun] = await getRunningScrapeRun();
+  if (runningRun) return null;
 
   state.running = true;
   state.currentRunId = `scrape-${Date.now()}-${++runSequence}`;
@@ -186,6 +192,18 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
       }
 
       try {
+        if (!isSafeUrl(employer.careerUrl)) {
+          employerSummary.status = 'error';
+          employerSummary.errors.push({
+            errorType: 'invalid_url',
+            message: `Refusing to fetch unsafe URL: ${employer.careerUrl}`,
+          });
+          await logError(employer.id, 'invalid_url', `Refusing to fetch unsafe URL: ${employer.careerUrl}`);
+          errors++;
+          employerSummaries.push(employerSummary);
+          continue;
+        }
+
         const allowed = await checkRobots(
           employer.careerUrl,
           config.scraper.userAgent,
@@ -734,6 +752,46 @@ async function markErrorsResolved(employerId: number): Promise<void> {
   } catch (err) {
     console.error('[pipeline] failed to resolve scrape errors:', err);
   }
+}
+
+/**
+ * Returns false if the URL targets a private/loopback/link-local address range
+ * that should never be reachable from the scraper (SSRF guard).
+ * Only allows http: and https: schemes.
+ */
+function isSafeUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+
+  const hostname = url.hostname.toLowerCase();
+
+  // Reject localhost variants
+  if (hostname === 'localhost') return false;
+
+  // Reject IPv6 loopback / link-local
+  if (hostname === '[::1]' || hostname.startsWith('[fe80:')) return false;
+
+  // Parse IPv4 dotted-decimal
+  const ipv4 = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number);
+    if (
+      a === 127 ||                            // 127.0.0.0/8 loopback
+      a === 10 ||                             // 10.0.0.0/8 private
+      (a === 172 && b >= 16 && b <= 31) ||   // 172.16.0.0/12 private
+      (a === 192 && b === 168) ||             // 192.168.0.0/16 private
+      (a === 169 && b === 254)                // 169.254.0.0/16 link-local
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function classifyError(err: unknown): string {

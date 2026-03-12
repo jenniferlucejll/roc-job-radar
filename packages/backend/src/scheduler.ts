@@ -18,10 +18,15 @@ export function startScheduler(): void {
   }
 
   scheduledJob = schedule(cronExpression, () => {
-    const startedRun = triggerPipeline();
-    if (!startedRun) {
-      console.log('[scheduler] Scrape already in progress; skipping scheduled run');
-    }
+    triggerPipeline()
+      .then((startedRun) => {
+        if (!startedRun) {
+          console.log('[scheduler] Scrape already in progress; skipping scheduled run');
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('[scheduler] Failed to trigger pipeline:', err);
+      });
   });
 
   started = true;

@@ -44,7 +44,7 @@ describe('scheduler', () => {
     expect(schedule).toHaveBeenCalledWith('*/10 * * * *', expect.any(Function));
     expect(typeof scheduledCallback!).toBe('function');
 
-    triggerPipeline.mockReturnValue(true);
+    triggerPipeline.mockResolvedValue('scrape-123');
     scheduledCallback!();
 
     expect(triggerPipeline).toHaveBeenCalledTimes(1);

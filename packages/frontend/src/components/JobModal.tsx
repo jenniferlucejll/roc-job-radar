@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import DOMPurify from 'dompurify'
 import type { Employer, Job } from '../types/index.js'
 
 interface Props {
@@ -96,7 +97,7 @@ export function JobModal({ job, employer, onClose }: Props) {
           {job.descriptionHtml ? (
             <div
               className="prose prose-sm max-w-none text-gray-700 [&>*:first-child]:mt-0"
-              dangerouslySetInnerHTML={{ __html: job.descriptionHtml }}
+              dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(job.descriptionHtml) }}
             />
           ) : (
             <p className="text-sm text-gray-400">No description available.</p>
