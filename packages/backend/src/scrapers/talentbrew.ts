@@ -18,6 +18,77 @@ interface TalentBrewResponse {
   results: string; // HTML fragment containing <ul><li>... job cards
 }
 
+/**
+ * Fetch a single TalentBrew job detail page and extract enrichment fields.
+ * TalentBrew detail pages embed the description in #ats-description and
+ * metadata (Category, Date, Salary) in <dl> blocks with <dt>/<dd> pairs.
+ */
+async function fetchTalentBrewJobDetail(
+  jobUrl: string,
+  userAgent: string,
+  timeoutMs: number,
+): Promise<Partial<ScrapedJob>> {
+  const resp = await fetch(jobUrl, {
+    method: 'GET',
+    headers: {
+      'User-Agent': userAgent,
+      'Accept': 'text/html,application/xhtml+xml',
+    },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+
+  if (!resp.ok) {
+    throw new Error(`TalentBrew detail request failed: HTTP ${resp.status}`);
+  }
+
+  const html = await resp.text();
+  const $ = load(html);
+
+  const result: Partial<ScrapedJob> = {};
+
+  // Description — try known TalentBrew selectors; comma selector picks first match
+  const descEl = $('#ats-description, .ats-description, #job-details .content').first();
+  const descHtml = descEl.html()?.trim();
+  if (descHtml) result.descriptionHtml = descHtml;
+
+  // Metadata: scan all <dt> elements and match by label text
+  $('dt').each((_, dt) => {
+    const label = $(dt).text().trim().toLowerCase();
+    const value = $(dt).next('dd').text().trim();
+    if (!value) return;
+
+    if (label.includes('category') || label.includes('job category')) {
+      result.department = value;
+    } else if (label.includes('date') || label.includes('posted')) {
+      const parsed = parseTalentBrewDate(value);
+      if (parsed) result.datePostedAt = parsed;
+    } else if (label.includes('salary') || label.includes('compensation')) {
+      result.salaryRaw = value;
+    }
+  });
+
+  return result;
+}
+
+/**
+ * Parse a TalentBrew date string into a Date.
+ * Handles ISO format (YYYY-MM-DD) and common US formats (MM/DD/YYYY).
+ */
+function parseTalentBrewDate(value: string): Date | undefined {
+  const trimmed = value.trim();
+  // ISO: 2024-03-15
+  if (/^\d{4}-\d{2}-\d{2}/.test(trimmed)) {
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? undefined : d;
+  }
+  // US: 03/15/2024
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(trimmed)) {
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? undefined : d;
+  }
+  return undefined;
+}
+
 export async function fetchTalentBrewJobs(
   tbConfig: TalentBrewConfig,
   userAgent: string,
@@ -26,6 +97,8 @@ export async function fetchTalentBrewJobs(
   maxRetryAttempts = 3,
   retryBaseDelayMs = 1000,
   context?: ScrapeContext,
+  enrichDetails = false,
+  detailIntervalMs = 3000,
 ): Promise<ScrapedJob[]> {
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
@@ -78,6 +151,29 @@ export async function fetchTalentBrewJobs(
     });
 
     page++;
+  }
+
+  if (!enrichDetails || all.length === 0) {
+    return all;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Detail enrichment: fetch each job's HTML page for description, department,
+  // date posted, and salary. Requests are throttled to be polite to the server.
+  // ---------------------------------------------------------------------------
+  const detailThrottler = createRequestThrottler(detailIntervalMs);
+
+  for (const job of all) {
+    await detailThrottler.waitForNextSlot();
+    try {
+      const detail = await fetchTalentBrewJobDetail(job.url, userAgent, timeoutMs);
+      if (detail.descriptionHtml) job.descriptionHtml = detail.descriptionHtml;
+      if (detail.department) job.department = detail.department;
+      if (detail.datePostedAt) job.datePostedAt = detail.datePostedAt;
+      if (detail.salaryRaw) job.salaryRaw = detail.salaryRaw;
+    } catch (err) {
+      console.warn(`[talentbrew] Detail fetch failed for ${job.url} — skipping:`, err);
+    }
   }
 
   return all;

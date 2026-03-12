@@ -4,6 +4,7 @@
 // Location filter: Keywords=rochester-new-york, OrganizationIds=4832
 // externalId: numeric TalentBrew posting ID from data-job-id attribute (e.g. "91162231968")
 // Pagination: loop pages until hasJobs: false
+// Detail enrichment: fetches each job's HTML page for description, department, date posted
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
 import { BaseScraper, ScrapeContext } from '../base.js';
@@ -27,6 +28,8 @@ export class L3HarrisScraper extends BaseScraper {
       config.scraper.maxRetryAttempts,
       config.scraper.retryBaseDelayMs,
       context,
+      true, // enrichDetails: fetch individual job pages for description, department, date posted
+      config.scraper.detailIntervalMs,
     );
   }
 }

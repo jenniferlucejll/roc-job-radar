@@ -9,6 +9,7 @@ const fixturesDir = join(__dirname, '..', 'fixtures');
 const page1 = JSON.parse(readFileSync(join(fixturesDir, 'talentbrew-page1.json'), 'utf8'));
 const page2 = JSON.parse(readFileSync(join(fixturesDir, 'talentbrew-page2.json'), 'utf8'));
 const noJobs = { hasJobs: false, results: '<ul></ul>', filters: '' };
+const detailHtml = readFileSync(join(fixturesDir, 'talentbrew-detail.html'), 'utf8');
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -16,24 +17,54 @@ beforeEach(() => {
 
 vi.mock('../../../src/config.js', () => ({
   config: {
-    scraper: { userAgent: 'test-agent', timeoutMs: 5000 },
+    scraper: {
+      userAgent: 'test-agent',
+      timeoutMs: 5000,
+      requestIntervalMs: 0,
+      maxRetryAttempts: 1,
+      retryBaseDelayMs: 0,
+      detailIntervalMs: 0,
+    },
   },
 }));
 
 const { wegmansScraper } = await import('../../../src/scrapers/adapters/wegmans.js');
+
+/**
+ * Build a fetch mock that routes by URL:
+ *   - /en/search-jobs/results → listing pages in order, then noJobs
+ *   - /en/job/...             → detail HTML (or error if detailError: true)
+ */
+function buildFetchMock(options: {
+  listingPages?: unknown[];
+  detailHtml?: string;
+  detailError?: boolean;
+}) {
+  const pages = [...(options.listingPages ?? [page1]), noJobs];
+  let listingIdx = 0;
+  return vi.fn().mockImplementation((url: string) => {
+    if ((url as string).includes('/en/search-jobs/results')) {
+      const payload = pages[listingIdx++] ?? noJobs;
+      return Promise.resolve({ ok: true, json: async () => payload });
+    }
+    // Detail page request
+    if (options.detailError) {
+      return Promise.resolve({ ok: false, status: 503 });
+    }
+    return Promise.resolve({
+      ok: true,
+      text: async () => options.detailHtml ?? detailHtml,
+    });
+  });
+}
 
 describe('WegmansScraper', () => {
   it('has the correct employerKey', () => {
     expect(wegmansScraper.employerKey).toBe('wegmans');
   });
 
-  it('maps TalentBrew jobs to ScrapedJob correctly', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn()
-        .mockResolvedValueOnce({ ok: true, json: async () => page1 })
-        .mockResolvedValueOnce({ ok: true, json: async () => noJobs }),
-    );
+  it('maps TalentBrew listing fields to ScrapedJob correctly', async () => {
+    vi.stubGlobal('fetch', buildFetchMock({ listingPages: [page1] }));
 
     const jobs = await wegmansScraper.scrape();
 
@@ -48,15 +79,13 @@ describe('WegmansScraper', () => {
   });
 
   it('paginates until hasJobs is false', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce({ ok: true, json: async () => page1 })
-      .mockResolvedValueOnce({ ok: true, json: async () => page2 })
-      .mockResolvedValueOnce({ ok: true, json: async () => noJobs });
+    const fetchMock = buildFetchMock({ listingPages: [page1, page2] });
     vi.stubGlobal('fetch', fetchMock);
 
     const jobs = await wegmansScraper.scrape();
 
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    // 3 listing calls (page1, page2, noJobs) + 3 detail calls = 6
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     expect(jobs).toHaveLength(3);
     expect(jobs[2].externalId).toBe('92001003');
   });
@@ -71,7 +100,7 @@ describe('WegmansScraper', () => {
     expect(jobs).toHaveLength(0);
   });
 
-  it('uses GET with correct URL and headers', async () => {
+  it('uses GET with correct URL and headers for the listing request', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => noJobs,
@@ -80,27 +109,74 @@ describe('WegmansScraper', () => {
 
     await wegmansScraper.scrape();
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('jobs.wegmans.com/en/search-jobs/results'),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'X-Requested-With': 'XMLHttpRequest',
-          'User-Agent': 'test-agent',
-        }),
-      }),
+    const listingCall = fetchMock.mock.calls.find(([url]) =>
+      (url as string).includes('/en/search-jobs/results'),
     );
-    const calledUrl = fetchMock.mock.calls[0][0] as string;
-    expect(calledUrl).toContain('Keywords=rochester-ny');
-    expect(calledUrl).toContain('OrganizationIds=1839');
-    expect(calledUrl).toContain('CurrentPage=1');
+    expect(listingCall).toBeDefined();
+    expect(listingCall![1]).toMatchObject({
+      headers: expect.objectContaining({
+        'X-Requested-With': 'XMLHttpRequest',
+        'User-Agent': 'test-agent',
+      }),
+    });
+    expect(listingCall![0]).toContain('Keywords=rochester-ny');
+    expect(listingCall![0]).toContain('OrganizationIds=1839');
+    expect(listingCall![0]).toContain('CurrentPage=1');
   });
 
-  it('throws when the API returns a non-OK status', async () => {
+  it('throws when the listing API returns a non-OK status', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({ ok: false, status: 503 }),
     );
 
     await expect(wegmansScraper.scrape()).rejects.toThrow('503');
+  });
+
+  describe('detail enrichment', () => {
+    it('populates description, department, datePostedAt, and salary from detail page', async () => {
+      vi.stubGlobal('fetch', buildFetchMock({ listingPages: [page1] }));
+
+      const [first] = await wegmansScraper.scrape();
+
+      expect(first.descriptionHtml).toContain('Design and develop advanced defense systems software');
+      expect(first.department).toBe('Engineering');
+      expect(first.datePostedAt).toEqual(new Date('2024-03-15'));
+      expect(first.salaryRaw).toBe('$100,000 - $150,000');
+    });
+
+    it('continues enriching remaining jobs when one detail fetch fails', async () => {
+      let listingCallCount = 0;
+      let detailCallCount = 0;
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if ((url as string).includes('/en/search-jobs/results')) {
+          listingCallCount++;
+          return Promise.resolve({ ok: true, json: async () => (listingCallCount === 1 ? page1 : noJobs) });
+        }
+        detailCallCount++;
+        if (detailCallCount === 1) {
+          return Promise.resolve({ ok: false, status: 503 });
+        }
+        return Promise.resolve({ ok: true, text: async () => detailHtml });
+      });
+      vi.stubGlobal('fetch', fetchMock);
+
+      const jobs = await wegmansScraper.scrape();
+
+      expect(jobs).toHaveLength(2);
+      expect(jobs[0].descriptionHtml).toBeUndefined();
+      expect(jobs[1].descriptionHtml).toContain('Design and develop advanced defense systems software');
+    });
+
+    it('returns jobs without enrichment fields when all detail fetches fail', async () => {
+      vi.stubGlobal('fetch', buildFetchMock({ listingPages: [page1], detailError: true }));
+
+      const jobs = await wegmansScraper.scrape();
+
+      expect(jobs).toHaveLength(2);
+      expect(jobs[0].title).toBe('Software Engineer');
+      expect(jobs[0].descriptionHtml).toBeUndefined();
+      expect(jobs[0].department).toBeUndefined();
+    });
   });
 });
