@@ -12,6 +12,7 @@ import { fetchWorkdayJobs } from '../workday.js';
 const WD_CONFIG = {
   apiUrl: 'https://rochester.wd5.myworkdayjobs.com/wday/cxs/rochester/UR_Staff/jobs',
   baseUrl: 'https://rochester.wd5.myworkdayjobs.com',
+  instance: 'UR_Staff',
 };
 
 export class UniversityOfRochesterScraper extends BaseScraper {
@@ -26,6 +27,8 @@ export class UniversityOfRochesterScraper extends BaseScraper {
       config.scraper.maxRetryAttempts,
       config.scraper.retryBaseDelayMs,
       context,
+      true, // enrichDetails: fetch individual job pages for description, salary, department
+      config.scraper.detailIntervalMs,
     );
   }
 }
