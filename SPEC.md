@@ -1,7 +1,7 @@
 # roc-job-radar — Project Specification
 
 > Last updated: 2026-03-11
-> Status: Backend implemented (active development), frontend deferred.
+> Status: Backend implemented (active development), frontend implemented.
 
 ---
 
@@ -17,13 +17,13 @@ Primary value: quickly identifying newly visible Rochester-area opportunities.
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Frontend | React 18 + TypeScript + Vite | Deferred (placeholder workspace only) |
+| Frontend | React 18 + TypeScript + Vite + Tailwind + Recharts | Implemented — 3-page app (Jobs, Admin, Analytics) |
 | Backend | Node.js + TypeScript + Express | Implemented |
 | Database | PostgreSQL | Dockerized in development |
 | ORM | Drizzle ORM + drizzle-kit | Schema-as-code + committed migrations |
 | Scraping | fetch + cheerio-based parsing utilities | Adapters use ATS JSON feeds where available |
 | Scheduling | node-cron (in-process) | Manual + scheduled runs |
-| Testing | Vitest | Unit tests for scrapers, pipeline, API routes, config, scheduler |
+| Testing | Vitest + React Testing Library | Backend: scrapers, pipeline, API routes, config, scheduler. Frontend: API client, analytics utils, pages, components |
 | Package manager | npm workspaces | Monorepo |
 
 TypeScript strict mode is enabled.
@@ -49,7 +49,14 @@ roc-job-radar/
 │   │   │   ├── api/
 │   │   │   └── scrapers/
 │   │   └── tests/
-│   └── frontend/ (placeholder)
+│   └── frontend/
+│       ├── src/
+│       │   ├── api/          # typed fetch wrappers
+│       │   ├── components/   # Header, SearchBar, JobCardLarge, JobModal, etc.
+│       │   ├── pages/        # HomePage, AdminPage, AnalyticsPage
+│       │   ├── types/        # shared TypeScript interfaces
+│       │   └── utils/        # analytics pure functions
+│       └── vitest.config.ts
 ```
 
 ---
@@ -231,17 +238,25 @@ No public internet exposure is assumed.
 ## 13. Testing Scope
 
 Current automated tests cover:
+
+Backend:
 - scraper helpers (robots, retry, throttle, filters)
 - adapters (Paychex, U of R, Wegmans, L3Harris)
 - pipeline status hydration and run-state behavior
 - API route behavior (`/api/scrape`, `/api/employers`)
 - config and scheduler behavior
 
+Frontend:
+- API client URL building and error handling (all 5 functions)
+- Analytics utility functions (`buildCurrentCounts`, `buildMonthlyTrend`)
+- HomePage integration (filters, sorting, pagination, modal)
+- Pagination component boundary behavior
+- JobModal content rendering and close behavior
+
 ---
 
 ## 14. Out of Scope (Current Phase)
 
-- frontend implementation details
 - user authentication
 - notifications (email/push)
 - multi-user features
@@ -252,4 +267,5 @@ Current automated tests cover:
 
 ## 15. Roadmap Direction
 
-Near-term focus remains backend reliability + data quality for Rochester ingestion, while keeping API/schema contracts stable for future frontend development.
+Backend: reliability + data quality for Rochester ingestion.
+Frontend: iterate on UI as new data or workflows emerge (e.g. saved searches, job notes, new analytics views).

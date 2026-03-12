@@ -9,7 +9,7 @@
 
 `roc-job-radar` is a personal job aggregator that scrapes Rochester, NY employer career sites and surfaces new tech roles via a web dashboard. See `SPEC.md` for the full specification.
 
-**Current phase:** Pre-implementation. SPEC.md and repo structure being established.
+**Current phase:** Backend active development. Frontend implemented and tested.
 
 ---
 
@@ -18,7 +18,7 @@
 ### Repository Layout (npm workspaces monorepo)
 ```
 packages/backend/   Node.js + Express + TypeScript backend (active development)
-packages/frontend/  React + Vite frontend (deferred — placeholder only)
+packages/frontend/  React + Vite frontend (implemented)
 docker-compose.yml  Base Docker config (postgres + backend)
 docker-compose.override.yml  Dev overrides (hot reload, host port exposure)
 ```
@@ -46,6 +46,24 @@ docker-compose.override.yml  Dev overrides (hot reload, host port exposure)
 - node-cron, schedule configurable via `SCRAPE_CRON` env var (default: every 6h)
 - Only one scrape run at a time (idempotent)
 
+### Frontend (`packages/frontend/src/`)
+
+**3-page React app with React Router v6 + Tailwind CSS + Recharts.**
+
+Pages:
+- `/` — Home: full-width search bar, employer/status filters, card/list toggle, paginated job grid (12/page card, 20/page list), job detail modal
+- `/admin` — Admin: scrape control + run now button, recent runs table, per-employer breakdown, employers table, job stats
+- `/analytics` — Analytics: bar + line charts for jobs by category and by company over time
+
+Key files:
+- `pages/` — `HomePage.tsx`, `AdminPage.tsx`, `AnalyticsPage.tsx`
+- `components/` — `Header.tsx`, `SearchBar.tsx`, `ViewToggle.tsx`, `Pagination.tsx`, `JobCardLarge.tsx`, `JobListRow.tsx`, `JobModal.tsx`
+- `api/client.ts` — typed fetch wrappers for all backend endpoints
+- `utils/analytics.ts` — pure functions `buildCurrentCounts` and `buildMonthlyTrend` (used by Analytics page and tested independently)
+- `types/index.ts` — shared TypeScript interfaces
+
+Frontend runs on port 5173 (dev) with Vite proxy to backend at port 3000.
+
 ### Data Flow
 ```
 cron / POST /api/scrape
@@ -66,6 +84,12 @@ cron / POST /api/scrape
 ### Start development environment
 ```bash
 docker compose up          # starts postgres + backend with hot reload
+```
+
+### Start frontend dev server (in a separate terminal)
+```bash
+cd packages/frontend
+npm run dev                # Vite on port 5173, proxies /api → localhost:3000
 ```
 
 ### Backend only (without Docker, for rapid iteration)
@@ -91,6 +115,10 @@ curl -X POST http://localhost:3000/api/scrape
 cd packages/backend
 npm test                   # vitest
 npm run test:watch         # vitest --watch
+
+cd packages/frontend
+npm test                   # vitest run
+npm run test:watch         # vitest
 ```
 
 ### Access Postgres directly (dev only — port exposed to host)
@@ -164,7 +192,8 @@ Authorship should remain the git user configured in the repository.
 - **Errors in scrapers are caught and logged, never thrown up to the pipeline.** The pipeline continues on per-employer failure.
 - **robots.txt must be checked before every adapter run.** Never bypass this.
 - **No auth on the API.** The server binds to localhost. Do not add public-facing auth complexity.
-- **Frontend is deferred.** Do not add frontend implementation without explicit instruction.
+- **Frontend uses no component library.** Pure Tailwind utility classes only — no Shadcn, MUI, etc.
+- **Frontend analytics utils are pure functions.** Keep `buildCurrentCounts` and `buildMonthlyTrend` in `utils/analytics.ts` and test them separately from the React component.
 
 ---
 
