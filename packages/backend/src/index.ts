@@ -5,6 +5,6 @@ import { startScheduler } from './scheduler.js';
 const app = createApp();
 startScheduler();
 
-app.listen(config.server.port, '0.0.0.0', () => {
-  console.log(`roc-job-radar backend listening on port ${config.server.port}`);
+app.listen(config.server.port, config.server.host, () => {
+  console.log(`roc-job-radar backend listening on ${config.server.host}:${config.server.port}`);
 });

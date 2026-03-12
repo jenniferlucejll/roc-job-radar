@@ -19,6 +19,7 @@ services:
       - .env.development
     environment:
       POSTGRES_HOST: postgres
+      SERVER_HOST: 0.0.0.0
     depends_on:
       postgres:
         condition: service_healthy

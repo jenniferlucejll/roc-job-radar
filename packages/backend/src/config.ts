@@ -25,6 +25,7 @@ export const config = Object.freeze({
     password: required('POSTGRES_PASSWORD'),
   },
   server: {
+    host: optional('SERVER_HOST', '127.0.0.1'),
     port: optionalInt('PORT', 3000),
     nodeEnv: optional('NODE_ENV', 'development'),
   },

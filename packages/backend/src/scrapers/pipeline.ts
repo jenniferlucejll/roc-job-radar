@@ -249,10 +249,12 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     }
 
     const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
     const result: ScrapeResult = {
       runId,
       startedAt,
       finishedAt,
+      durationMs,
       status: errors > 0 ? 'partial_error' : 'success',
       employersRun,
       jobsInserted,
@@ -270,6 +272,7 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[pipeline] Scrape run ${runId} failed: ${message}`);
     const finishedAt = new Date();
+    const durationMs = finishedAt.getTime() - startedAt.getTime();
 
     const openErrorCounts = await getOpenErrorCountsByEmployer(employerIds);
     let openErrors = 0;
@@ -283,6 +286,7 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
       runId,
       startedAt,
       finishedAt,
+      durationMs,
       status: 'failed',
       employersRun,
       jobsInserted,

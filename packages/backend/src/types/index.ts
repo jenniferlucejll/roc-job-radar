@@ -17,6 +17,7 @@ export interface ScrapeResult {
   runId: string;
   startedAt: Date;
   finishedAt: Date;
+  durationMs: number;
   status: ScrapeRunStatus;
   employersRun: number;
   jobsInserted: number;

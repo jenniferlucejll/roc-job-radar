@@ -1,383 +1,255 @@
 # roc-job-radar — Project Specification
 
 > Last updated: 2026-03-11
-> Status: Pre-implementation. This document governs all initial architecture and implementation decisions.
+> Status: Backend implemented (active development), frontend deferred.
 
 ---
 
 ## 1. Project Goal
 
-Build a locally-operated job aggregator that scrapes Rochester, NY employer career sites, stores all discovered job postings, and surfaces new tech-relevant roles via a web UI. The primary value is early awareness of newly posted positions at target companies.
+Build a locally operated job aggregator for Rochester, NY employers. The backend scrapes selected career sites, stores discovered postings with history, and exposes APIs for viewing jobs and scrape health.
+
+Primary value: quickly identifying newly visible Rochester-area opportunities.
 
 ---
 
-## 2. Tech Stack
+## 2. Current Stack
 
 | Layer | Technology | Notes |
 |---|---|---|
-| Frontend | React 18 + TypeScript + Vite | Not implemented in initial passes |
-| Backend | Node.js + TypeScript + Express | REST API |
-| Database | PostgreSQL | Runs in Docker |
-| ORM | Drizzle ORM + drizzle-kit | Schema-as-code, versioned migrations |
-| Scraping | fetch + cheerio (default), Playwright (fallback) | Method-agnostic adapter interface |
-| Testing | Vitest | Unit tests for scraper adapters using HTML fixtures |
+| Frontend | React 18 + TypeScript + Vite | Deferred (placeholder workspace only) |
+| Backend | Node.js + TypeScript + Express | Implemented |
+| Database | PostgreSQL | Dockerized in development |
+| ORM | Drizzle ORM + drizzle-kit | Schema-as-code + committed migrations |
+| Scraping | fetch + cheerio-based parsing utilities | Adapters use ATS JSON feeds where available |
+| Scheduling | node-cron (in-process) | Manual + scheduled runs |
+| Testing | Vitest | Unit tests for scrapers, pipeline, API routes, config, scheduler |
 | Package manager | npm workspaces | Monorepo |
-| Containerization | Docker + docker-compose | Everything runs in Docker |
-| Scheduler | node-cron (in-process) | Plus manual trigger via API |
 
-**TypeScript strictness:** `strict: true` across all packages.
+TypeScript strict mode is enabled.
 
 ---
 
-## 3. Repository Structure
+## 3. Repository Layout
 
 ```
 roc-job-radar/
-├── CLAUDE.md                        # Claude Code instructions (architecture + dev commands)
-├── SPEC.md                          # This file
+├── SPEC.md
 ├── README.md
-├── .gitignore
-├── .env.example                     # Template — never commit .env files
-├── .env.development                 # Local dev config (gitignored)
-├── .env.production                  # Prod config (gitignored)
-├── docker-compose.yml               # Base compose (postgres + backend)
-├── docker-compose.override.yml      # Dev overrides (hot reload, volume mounts)
-├── package.json                     # npm workspace root (no src here)
-└── packages/
-    ├── backend/
-    │   ├── package.json
-    │   ├── tsconfig.json
-    │   ├── vitest.config.ts
-    │   ├── drizzle.config.ts        # drizzle-kit config
-    │   ├── src/
-    │   │   ├── index.ts             # Entry point: starts server + scheduler
-    │   │   ├── server.ts            # Express app setup, routes mounted here
-    │   │   ├── scheduler.ts         # node-cron setup, kicks off scrape pipeline
-    │   │   ├── config.ts            # Reads and validates env vars
-    │   │   ├── db/
-    │   │   │   ├── schema.ts        # Drizzle table definitions
-    │   │   │   ├── client.ts        # postgres.js connection + Drizzle instance
-    │   │   │   └── migrations/      # drizzle-kit generated SQL files
-    │   │   ├── scrapers/
-    │   │   │   ├── base.ts          # BaseScraper abstract class / interface
-    │   │   │   ├── pipeline.ts      # Orchestrates all adapters, persists results
-    │   │   │   ├── filters.ts       # Keyword allowlist + category filter logic
-    │   │   │   ├── robots.ts        # robots.txt fetch + caching + check
-    │   │   │   └── adapters/
-    │   │   │       ├── paychex.ts
-    │   │   │       ├── wegmans.ts
-    │   │   │       ├── esl.ts
-    │   │   │       ├── university-of-rochester.ts
-    │   │   │       └── l3harris.ts
-    │   │   ├── api/
-    │   │   │   ├── routes/
-    │   │   │   │   ├── jobs.ts      # GET /api/jobs, GET /api/jobs/:id
-    │   │   │   │   ├── employers.ts # GET /api/employers
-    │   │   │   │   └── scrape.ts    # POST /api/scrape, GET /api/scrape/status
-    │   │   │   └── middleware/
-    │   │   │       └── error.ts     # Global error handler
-    │   │   └── types/
-    │   │       └── index.ts         # Shared TypeScript types
-    │   └── tests/
-    │       └── scrapers/
-    │           ├── fixtures/        # Saved HTML snapshots per employer
-    │           │   ├── paychex/
-    │           │   ├── wegmans/
-    │           │   └── ...
-    │           ├── paychex.test.ts
-    │           ├── wegmans.test.ts
-    │           └── filters.test.ts
-    └── frontend/
-        ├── package.json             # Placeholder — implementation deferred
-        └── README.md                # Notes for future implementation
+├── docker-compose.yml
+├── docker-compose.override.yml
+├── packages/
+│   ├── backend/
+│   │   ├── src/
+│   │   │   ├── index.ts
+│   │   │   ├── server.ts
+│   │   │   ├── scheduler.ts
+│   │   │   ├── config.ts
+│   │   │   ├── db/
+│   │   │   ├── api/
+│   │   │   └── scrapers/
+│   │   └── tests/
+│   └── frontend/ (placeholder)
 ```
 
 ---
 
-## 4. Database Schema
+## 4. Implemented Employer Scope
 
-All tables use `snake_case`. Drizzle schema defined in `packages/backend/src/db/schema.ts`.
+Current active adapter set:
+- Paychex (`jibe`)
+- Wegmans (`custom` + TalentBrew endpoint)
+- University of Rochester (`workday`)
+- L3Harris (`talentbrew`)
+
+ESL was intentionally retired from the active ingestion scope.
+
+---
+
+## 5. Database Schema (Source of Truth: Drizzle)
+
+Defined in `packages/backend/src/db/schema.ts`.
 
 ### `employers`
-| Column | Type | Notes |
-|---|---|---|
-| id | serial PK | |
-| name | text NOT NULL | Human-readable name |
-| career_url | text NOT NULL | Base URL of careers page |
-| ats_type | text | `workday`, `greenhouse`, `lever`, `icims`, `custom`, null |
-| scraper_adapter | text NOT NULL | Name of adapter module (e.g. `paychex`) |
-| active | boolean DEFAULT true | Soft-disable an employer without deleting |
-| created_at | timestamptz DEFAULT now() | |
+- `id` serial PK
+- `key` text unique not null
+- `name` text not null
+- `career_url` text not null
+- `ats_type` text not null
+- `active` boolean not null default true
+- `created_at` timestamp not null default now()
 
 ### `jobs`
-| Column | Type | Notes |
-|---|---|---|
-| id | serial PK | |
-| employer_id | integer FK → employers.id | |
-| external_id | text | ID from source (ATS job ID, URL hash, etc.) |
-| title | text NOT NULL | |
-| url | text NOT NULL UNIQUE | Canonical URL of the job posting |
-| location | text | Raw location string from posting |
-| remote_status | text | `onsite`, `hybrid`, `remote`, `unknown` |
-| department | text | Engineering, IT, etc. — null if not provided |
-| description_html | text | Full raw HTML of job description |
-| salary_raw | text | Raw salary string if listed, null otherwise |
-| date_posted_at | timestamptz | Date from posting if available, null otherwise |
-| first_seen_at | timestamptz NOT NULL DEFAULT now() | When we first scraped this job |
-| last_seen_at | timestamptz NOT NULL DEFAULT now() | Updated on each scrape where job is still present |
-| removed_at | timestamptz | Set when job no longer appears on career site (soft delete) |
-| created_at | timestamptz DEFAULT now() | |
+- `id` serial PK
+- `employer_id` integer FK -> employers.id (not null)
+- `external_id` text not null
+- `title` text not null
+- `url` text not null
+- `location` text nullable
+- `remote_status` text nullable
+- `department` text nullable
+- `description_html` text nullable
+- `salary_raw` text nullable
+- `date_posted_at` timestamp nullable
+- `first_seen_at` timestamp not null default now()
+- `last_seen_at` timestamp not null default now()
+- `removed_at` timestamp nullable
 
-**Indexes:** `employer_id`, `removed_at` (for filtering active jobs), `first_seen_at` (for "new" queries).
+Constraints:
+- unique (`employer_id`, `external_id`)
+- unique (`url`)
 
 ### `scrape_errors`
-| Column | Type | Notes |
-|---|---|---|
-| id | serial PK | |
-| employer_id | integer FK → employers.id | null if error is pipeline-level |
-| scraped_at | timestamptz NOT NULL DEFAULT now() | |
-| error_type | text | `fetch_failed`, `parse_failed`, `robots_blocked`, `unknown` |
-| error_message | text | Full error message / stack |
-| resolved_at | timestamptz | Manually cleared once investigated |
+- `id` serial PK
+- `employer_id` integer FK -> employers.id (nullable)
+- `error_type` text not null
+- `message` text not null
+- `created_at` timestamp not null default now()
+- `resolved_at` timestamp nullable
+
+### `scrape_runs`
+- run-level metrics and status history (`running`/`success`/`partial_error`/`failed`)
+- includes duration, jobs inserted/updated/removed, request/retry totals, open error count
+
+### `scrape_run_employers`
+- per-employer metrics for each run
+- includes status, jobs scraped/filtered/inserted/updated/removed, request/retry counts, unresolved errors, structured error payload
+- unique (`run_id`, `employer_id`)
 
 ### `keyword_filters`
-| Column | Type | Notes |
-|---|---|---|
-| id | serial PK | |
-| keyword | text NOT NULL UNIQUE | Case-insensitive match term |
-| active | boolean DEFAULT true | |
-| match_field | text DEFAULT 'title' | `title`, `description`, or `both` |
+- `id` serial PK
+- `keyword` text unique not null
+- `active` boolean not null default true
+- `created_at` timestamp not null default now()
+
+Note: `keyword_filters` is currently seeded and available, but not required in the active pipeline filtering path.
 
 ---
 
-## 5. Scraper Architecture
+## 6. Scraper Architecture
 
-### Adapter Interface (BaseScraper)
+### Base adapter contract
+Each adapter extends `BaseScraper` with:
+- `employerKey`
+- `scrape(context?) => Promise<ScrapedJob[]>`
 
-Each employer adapter implements the following interface:
+`ScrapedJob` fields include:
+- `externalId`, `title`, `url`
+- optional `location`, `remoteStatus`, `department`, `descriptionHtml`, `salaryRaw`, `datePostedAt`
 
-```typescript
-interface ScrapedJob {
-  externalId: string;          // Stable identifier per employer (URL, ATS job ID, etc.)
-  title: string;
-  url: string;
-  location?: string;
-  remoteStatus?: 'onsite' | 'hybrid' | 'remote' | 'unknown';
-  department?: string;
-  descriptionHtml?: string;
-  salaryRaw?: string;
-  datePostedAt?: Date;
-}
-
-abstract class BaseScraper {
-  abstract employerKey: string;       // Matches employers.scraper_adapter
-  abstract scrape(context?: { onRequestAttempt?: (info: { attempt: number; maxAttempts: number; url: string }) => void }): Promise<ScrapedJob[]>;
-
-  // Optional: override to customize dedup strategy
-  resolveExternalId(job: ScrapedJob): string {
-    return job.url;                   // Default: URL is canonical identity
-  }
-}
-```
-
-**Job identity:** Each adapter is responsible for choosing a stable `externalId`. Default is the posting URL. Adapters using ATS platforms should prefer the ATS job ID (more stable than URL). The pipeline uses `externalId` + `employer_id` to detect seen vs. new jobs.
-
-### Scrape Pipeline (`pipeline.ts`)
-
+### Pipeline behavior
 For each active employer:
+1. Check robots.txt permission.
+2. Invoke adapter scrape.
+3. Apply Rochester-area location filter.
+4. Persist inserts/updates and clear `removed_at` on reappearance.
+5. Soft-remove missing jobs (`removed_at`).
+6. Record run-level and employer-level metrics/errors.
 
-1. Check robots.txt — skip adapter if disallowed, log error.
-2. Instantiate adapter, call `scrape()` — catch all errors, log to `scrape_errors`, continue to next employer.
-3. Apply tech-job filter (see §6).
-4. For each passing job:
-   - If `externalId` not in DB → INSERT, set `first_seen_at`, `last_seen_at`.
-   - If `externalId` in DB and `removed_at` is set → clear `removed_at`, update `last_seen_at`.
-   - If `externalId` in DB and active → update `last_seen_at`.
-5. Mark jobs from this employer that were NOT seen in this scrape as removed: set `removed_at = now()` where `last_seen_at < run_start AND removed_at IS NULL`.
-
-### Scraping Methods
-
-Adapters choose their own HTTP strategy. Two helpers provided:
-
-- **`fetchHtml(url)`** — fetch + return HTML string (uses node `fetch`, respects `User-Agent` header).
-- **`launchBrowser()`** — returns a Playwright browser page for JS-rendered sites.
-
-Which method each adapter uses is an internal implementation detail of that adapter. The pipeline only calls `scrape()`.
-
-### ATS Strategy
-
-- **Opportunistic:** If an employer's ATS exposes a structured JSON feed or undocumented API (common in Workday, Greenhouse), the adapter should use it instead of HTML parsing.
-- Document the ATS type in the `employers` table and in each adapter's header comment.
-- Known ATS platforms in seed list: TBD per-adapter (research phase).
+### Reliability features
+- request retry with bounded attempts + linear backoff
+- request throttling support for adapters
+- robots.txt fetch + 24h in-memory cache
+- per-employer failure isolation (pipeline continues on errors)
+- persisted scrape run history and per-employer breakdowns
 
 ---
 
-## 6. Tech Job Filtering
+## 7. Filtering Contract (Current)
 
-Filtering happens after scraping, before persistence. A job passes if **either** condition is met:
+The active ingestion filter is **Rochester-area location matching**.
 
-1. **Category filter:** `department` field (if present) matches an allowlist of tech departments (e.g. "Engineering", "Technology", "Information Technology", "Software", "Data", "IT", "Product").
+A job is retained when its location is recognized as greater Rochester (NY indicator plus Rochester/Monroe County/suburb matching). Non-matching jobs are excluded before persistence.
 
-2. **Keyword filter:** If no department match or department is null, check `keyword_filters` table against the job `title` (default) or description. At least one active keyword must match.
-
-**Keyword seed list** (initial, stored in DB via migration seed):
-`engineer`, `developer`, `software`, `data`, `devops`, `cloud`, `security`, `architect`, `platform`, `backend`, `frontend`, `fullstack`, `full-stack`, `infrastructure`, `sre`, `qa`, `quality assurance`, `machine learning`, `ml`, `ai`, `analytics`, `database`, `it`, `systems`, `network`, `cyber`
-
-Matching is case-insensitive. The `keyword_filters` table is editable; no code change needed to add/remove terms.
+`keyword_filters` and department keyword matching utilities exist as optional capability and future extension, but are not a required gate in current pipeline behavior.
 
 ---
 
-## 7. Scheduler
+## 8. Scheduler and Scrape Status
 
-- **In-process scheduler** using `node-cron` inside the Node server.
-- Default schedule: every 6 hours (`0 */6 * * *`) — configurable via `SCRAPE_CRON` env var.
-- **Manual trigger:** `POST /api/scrape` runs the pipeline immediately (idempotent — only one run at a time).
-- **Status:** `GET /api/scrape/status` returns last run metadata and per-run scrape metrics:
-  - run id, start time, and completion summary (`jobsInserted`, `jobsUpdated`, `jobsRemoved`, `errors`)
-  - per-employer request metrics (`requestAttempts`, `retryAttempts`)
-  - unresolved error counts (`openErrors` total and `unresolvedErrors` per employer)
-  - optional `limit` query param (1..50, default 10) to bound `recentRuns`
-- On prod (Windows), the Node app runs as a Windows Service using `node-windows` or NSSM, ensuring the in-process scheduler survives reboots.
+- In-process scheduler via `node-cron`
+- Default cron: `0 */6 * * *` (`SCRAPE_CRON`)
+- Manual run trigger: `POST /api/scrape`
+- Single-run lock: only one run executes at a time
+- Status endpoint returns:
+  - run state (`running`, `runId`, `lastStartedAt`)
+  - last persisted result (if present)
+  - recent run summaries
+  - optional `limit` query param, range `1..50`, default `10`
 
 ---
 
-## 8. REST API
+## 9. REST API (Implemented)
 
 Base path: `/api`
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/jobs` | List jobs. Query params: `employerId`, `status` (active/removed/all), `new` (boolean — seen in last N hours), `q` (text search on title) |
-| GET | `/jobs/:id` | Single job detail |
-| GET | `/employers` | List all employers with active status |
-| POST | `/scrape` | Trigger scrape pipeline manually. Returns `{ runId, started }` |
-| GET | `/scrape/status?limit=n` | Run metadata, request/retry metrics, unresolved errors, and recent run history |
+| GET | `/jobs` | List jobs with filters: `employerId` or `employer_id`, `status` (`active` default, `removed`, `all`), `new` (`true`/`1`), `newHours`, `q` (title contains) |
+| GET | `/jobs/:id` | Get one job |
+| GET | `/employers` | List active employers by default |
+| GET | `/employers?all=true` | Include inactive employers |
+| POST | `/scrape` | Trigger scrape run; returns `202` + `{ started, runId }` |
+| GET | `/scrape/status?limit=n` | Scrape status + run history |
 
-All responses are JSON. Errors return `{ error: string, code: string }` with appropriate HTTP status.
-
----
-
-## 9. Docker Configuration
-
-### `docker-compose.yml` (base)
-- `postgres` service: `postgres:16-alpine`, volume-mounted data dir, env vars from `.env` file.
-- `backend` service: built from `packages/backend/Dockerfile`, depends on `postgres`, env vars from `.env` file.
-
-### `docker-compose.override.yml` (dev)
-- Backend service mounts source code as volume and runs with `tsx watch` (hot reload).
-- Postgres port exposed to host (5432) for direct DB access from host tools.
-
-### Notes
-- On Windows prod, run with `docker compose up -d`.
-- Postgres data persisted via named Docker volume (`pgdata`).
-- App crashes restart via `restart: unless-stopped`.
+Errors return JSON shape `{ error: string, code: string }`.
 
 ---
 
 ## 10. Environment Variables
 
-Managed via `.env.development` and `.env.production` (both gitignored). Template in `.env.example`.
+Defined in `.env.example` and loaded for backend runtime.
 
-```
-# Database
-POSTGRES_HOST=postgres
-POSTGRES_PORT=5432
-POSTGRES_DB=roc_job_radar
-POSTGRES_USER=rjr
-POSTGRES_PASSWORD=changeme
-
-# App
-PORT=3000
-NODE_ENV=development
-
-# Scraper
-SCRAPE_CRON=0 */6 * * *
-SCRAPE_TIMEOUT_MS=30000
-SCRAPE_MAX_RETRY_ATTEMPTS=3
-SCRAPE_RETRY_BASE_DELAY_MS=1000
-SCRAPE_REQUEST_INTERVAL_MS=1000
-USER_AGENT=roc-job-radar/1.0 (personal job monitoring tool)
-
-# Optional: Playwright (only needed if any adapter uses headless browser)
-# PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-```
+Core:
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `SERVER_HOST`, `PORT`, `NODE_ENV`
+- `SCRAPE_CRON`, `SCRAPE_TIMEOUT_MS`, `SCRAPE_MAX_RETRY_ATTEMPTS`, `SCRAPE_RETRY_BASE_DELAY_MS`, `SCRAPE_REQUEST_INTERVAL_MS`, `USER_AGENT`
 
 ---
 
-## 11. Migrations
+## 11. Networking and Security Stance
 
-- Schema defined in `packages/backend/src/db/schema.ts` using Drizzle's TypeScript API.
-- Generate migration: `npm run db:generate` → writes SQL to `drizzle/migrations/`.
-- Apply migration: `npm run db:migrate` → applies pending migrations against the configured DB.
-- Migrations are committed to the repo and applied manually (not auto-run on startup).
-- Seed data (employer seed list, initial keyword filters) delivered as a migration or separate seed script.
+API remains unauthenticated by design for personal use, so exposure must stay constrained.
 
----
+Recommended host binding policy:
+- Local non-container runs: `SERVER_HOST=127.0.0.1`
+- Containerized runs: `SERVER_HOST=0.0.0.0` with access controlled by Docker port publishing and host firewall/network boundaries
 
-## 12. Testing
-
-- Framework: **Vitest** (TypeScript-native, fast, compatible with ESM).
-- Scope: **Unit tests for scraper adapters** using saved HTML fixtures.
-- Each adapter has a corresponding fixture directory with saved HTML responses from the actual career site.
-- Tests verify that `scrape()` returns correctly shaped `ScrapedJob[]` from the fixture.
-- Also unit test `filters.ts` with job fixtures covering edge cases (no department, empty title, etc.).
-
-No integration tests in initial passes. Add later once schema stabilizes.
+No public internet exposure is assumed.
 
 ---
 
-## 13. Employer Seed List
+## 12. Docker Notes
 
-| Employer | Career URL (TBD) | Known ATS | Notes |
-|---|---|---|---|
-| Paychex | TBD | Workday (likely) | Large tech org |
-| Wegmans | TBD | Custom / Workday | Significant tech team |
-| ESL Federal Credit Union | TBD | Unknown | Smaller tech org |
-| University of Rochester | TBD | Unknown | Mixed academic/IT roles |
-| L3Harris | TBD | Workday (likely) | Defense/aerospace engineering |
-
-ATS types and exact career page URLs to be confirmed during adapter implementation.
+- `docker-compose.yml` runs postgres + backend
+- backend service sets `POSTGRES_HOST=postgres`
+- backend service sets `SERVER_HOST=0.0.0.0` for container networking
+- `docker-compose.override.yml` provides dev conveniences (ports, hot reload mounts)
 
 ---
 
-## 14. robots.txt Policy
+## 13. Testing Scope
 
-- Before each adapter runs, the pipeline fetches and parses the employer's `robots.txt`.
-- Cache robots.txt responses for 24 hours (in-memory) to avoid redundant requests.
-- If `User-agent: *` or `User-agent: roc-job-radar` disallows the career path, skip the adapter and log to `scrape_errors` with `error_type: 'robots_blocked'`.
-- Rate limiting: minimum 1 second delay between HTTP requests within a single adapter run.
-
----
-
-## 15. Key Assumptions
-
-1. **Low volume:** Five employers, running every 6 hours. No caching layer, no queue, no worker processes needed.
-2. **Single user:** No auth, no multi-tenancy. The web UI is a personal dashboard.
-3. **No notifications in scope (MVP):** User checks the UI manually.
-4. **Frontend deferred:** Initial passes are backend-only. The React frontend is a future phase.
-5. **Windows service management is out of scope for this spec:** Documented as a deployment concern, not an implementation concern.
-6. **Playwright is optional:** Only installed if an adapter actually needs it. Not in base dependencies.
-7. **Job descriptions are stored as raw HTML:** No sanitization in the scraper layer. Sanitize on render in the frontend.
-8. **No authentication on the API:** The service binds to localhost only. Not exposed publicly.
+Current automated tests cover:
+- scraper helpers (robots, retry, throttle, filters)
+- adapters (Paychex, U of R, Wegmans, L3Harris)
+- pipeline status hydration and run-state behavior
+- API route behavior (`/api/scrape`, `/api/employers`)
+- config and scheduler behavior
 
 ---
 
-## 16. Out of Scope (MVP)
+## 14. Out of Scope (Current Phase)
 
-- Email or push notifications
-- User authentication
-- Multi-user support
-- Job application tracking
-- Automated employer discovery
-- NLP-based relevance ranking (keyword filter is sufficient for now)
-- Frontend implementation (deferred to next phase)
-- CI/CD pipeline
+- frontend implementation details
+- user authentication
+- notifications (email/push)
+- multi-user features
+- application tracking workflows
+- CI/CD design requirements
 
 ---
 
-## 17. Open Questions / Future Decisions
+## 15. Roadmap Direction
 
-- **Job dedup per adapter:** Each adapter decides its `externalId` strategy. If URL-based dedup proves too fragile for a specific employer (e.g. Workday with session-encoded URLs), switch that adapter to ATS job ID. Document the decision in the adapter's header comment.
-- **Playwright dependency:** Defer installing Playwright until at least one adapter requires it. If the first five adapters work with fetch+cheerio, keep Playwright out entirely.
-- **Windows Service wrapper:** `node-windows` vs. NSSM — decide during deployment phase.
-- **Frontend framework version:** React 18 now, may revisit at implementation time.
+Near-term focus remains backend reliability + data quality for Rochester ingestion, while keeping API/schema contracts stable for future frontend development.

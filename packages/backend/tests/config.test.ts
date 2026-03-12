@@ -12,7 +12,7 @@ beforeEach(() => {
   // Clear all relevant env vars before each test
   for (const key of [
     'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
-    'PORT', 'NODE_ENV', 'SCRAPE_CRON', 'SCRAPE_TIMEOUT_MS', 'SCRAPE_MAX_RETRY_ATTEMPTS', 'SCRAPE_RETRY_BASE_DELAY_MS', 'SCRAPE_REQUEST_INTERVAL_MS', 'USER_AGENT',
+    'PORT', 'SERVER_HOST', 'NODE_ENV', 'SCRAPE_CRON', 'SCRAPE_TIMEOUT_MS', 'SCRAPE_MAX_RETRY_ATTEMPTS', 'SCRAPE_RETRY_BASE_DELAY_MS', 'SCRAPE_REQUEST_INTERVAL_MS', 'USER_AGENT',
   ]) {
     delete process.env[key];
   }
@@ -37,6 +37,7 @@ describe('config', () => {
     expect(config.db.name).toBe('roc_job_radar');
     expect(config.db.user).toBe('rjr');
     expect(config.db.password).toBe('test-password');
+    expect(config.server.host).toBe('127.0.0.1');
     expect(config.server.port).toBe(3000);
     expect(config.server.nodeEnv).toBe('development');
     expect(config.scraper.cron).toBe('0 */6 * * *');
@@ -51,6 +52,7 @@ describe('config', () => {
       ...BASE_ENV,
       POSTGRES_HOST: 'db-host',
       POSTGRES_PORT: '5433',
+      SERVER_HOST: '0.0.0.0',
       PORT: '4000',
       SCRAPE_TIMEOUT_MS: '15000',
       SCRAPE_MAX_RETRY_ATTEMPTS: '5',
@@ -62,6 +64,7 @@ describe('config', () => {
 
     expect(config.db.host).toBe('db-host');
     expect(config.db.port).toBe(5433);
+    expect(config.server.host).toBe('0.0.0.0');
     expect(config.server.port).toBe(4000);
     expect(config.scraper.timeoutMs).toBe(15_000);
     expect(config.scraper.maxRetryAttempts).toBe(5);
