@@ -156,6 +156,9 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
     ? activeEmployers.filter((e) => e.key === employerKey)
     : activeEmployers;
 
+  const employerNames = employersToRun.map((e) => e.name).join(', ');
+  console.log(`[pipeline] Run ${runId} started — ${employersToRun.length} employer${employersToRun.length !== 1 ? 's' : ''}: ${employerNames}`);
+
   await startScrapeRunRecord(runId, startedAt);
 
   const employerIds = employersToRun.map((employer) => employer.id);
@@ -205,6 +208,8 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
         continue;
       }
 
+      console.log(`[pipeline] ${employer.name} starting…`);
+
       try {
         if (!isSafeUrl(employer.careerUrl)) {
           employerSummary.status = 'error';
@@ -213,6 +218,7 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
             message: `Refusing to fetch unsafe URL: ${employer.careerUrl}`,
           });
           await logError(employer.id, 'invalid_url', `Refusing to fetch unsafe URL: ${employer.careerUrl}`);
+          console.log(`[pipeline] ${employer.name} skipped — unsafe career URL`);
           errors++;
           employerSummaries.push(employerSummary);
           continue;
@@ -231,6 +237,7 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
             message: `robots.txt disallows ${employer.careerUrl}`,
           });
           await logError(employer.id, 'robots_blocked', `robots.txt disallows ${employer.careerUrl}`);
+          console.log(`[pipeline] ${employer.name} blocked by robots.txt — skipping`);
           errors++;
           employerSummaries.push(employerSummary);
           continue;
@@ -270,6 +277,16 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
       } finally {
         employerSummary.durationMs = Date.now() - employerStartMs;
         employerSummaries.push(employerSummary);
+        const durSec = (employerSummary.durationMs / 1000).toFixed(1);
+        const errSuffix = employerSummary.errors.length > 0
+          ? ` (${employerSummary.errors.length} error${employerSummary.errors.length !== 1 ? 's' : ''})`
+          : '';
+        console.log(
+          `[pipeline] ${employer.name} done in ${durSec}s — ` +
+          `scraped ${employerSummary.jobsScraped}, filtered ${employerSummary.jobsFiltered}, ` +
+          `+${employerSummary.jobsInserted} inserted, ${employerSummary.jobsUpdated} updated, ` +
+          `-${employerSummary.jobsRemoved} removed${errSuffix}`,
+        );
       }
     }
 
@@ -300,6 +317,10 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
       employers: employerSummaries,
     };
     await finalizeScrapeRun(result);
+    const durStr = durationMs < 60_000
+      ? `${(durationMs / 1000).toFixed(1)}s`
+      : `${Math.floor(durationMs / 60_000)}m ${Math.floor((durationMs % 60_000) / 1000)}s`;
+    console.log(`[pipeline] Run ${runId} complete in ${durStr} — status: ${result.status}, +${result.jobsInserted} inserted, ${result.jobsUpdated} updated, -${result.jobsRemoved} removed`);
     return result;
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);

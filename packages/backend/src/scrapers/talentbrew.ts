@@ -104,6 +104,8 @@ export async function fetchTalentBrewJobs(
   const all: ScrapedJob[] = [];
   let page = 1;
 
+  console.log(`[talentbrew] Fetching listing: GET ${tbConfig.baseUrl} (${tbConfig.locationSlug})`);
+
   while (true) {
     await throttler.waitForNextSlot();
 
@@ -133,6 +135,7 @@ export async function fetchTalentBrewJobs(
     );
     if (!data.hasJobs) break;
 
+    const countBefore = all.length;
     const $ = load(data.results);
     $('a[data-job-id]').each((_, el) => {
       const a = $(el);
@@ -150,8 +153,11 @@ export async function fetchTalentBrewJobs(
       });
     });
 
+    console.log(`[talentbrew] Page ${page}: ${all.length - countBefore} jobs (running total: ${all.length})`);
     page++;
   }
+
+  console.log(`[talentbrew] Listing complete: ${all.length} job${all.length !== 1 ? 's' : ''} across ${page - 1} page${page - 1 !== 1 ? 's' : ''}`);
 
   if (!enrichDetails || all.length === 0) {
     return all;
@@ -161,10 +167,12 @@ export async function fetchTalentBrewJobs(
   // Detail enrichment: fetch each job's HTML page for description, department,
   // date posted, and salary. Requests are throttled to be polite to the server.
   // ---------------------------------------------------------------------------
+  console.log(`[talentbrew] Enriching details for ${all.length} jobs`);
   const detailThrottler = createRequestThrottler(detailIntervalMs);
 
-  for (const job of all) {
+  for (const [i, job] of all.entries()) {
     await detailThrottler.waitForNextSlot();
+    console.log(`[talentbrew] Detail ${i + 1}/${all.length} — ${job.url}`);
     try {
       const detail = await fetchTalentBrewJobDetail(job.url, userAgent, timeoutMs);
       if (detail.descriptionHtml) job.descriptionHtml = detail.descriptionHtml;
@@ -176,5 +184,6 @@ export async function fetchTalentBrewJobs(
     }
   }
 
+  console.log(`[talentbrew] Detail enrichment complete`);
   return all;
 }

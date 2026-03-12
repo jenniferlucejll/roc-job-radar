@@ -209,9 +209,13 @@ export async function fetchWorkdayJobs(
   const all: ScrapedJob[] = [];
   let offset = 0;
   let total: number | null = null;
+  let page = 0;
+
+  console.log(`[workday] Fetching listing: POST ${wdConfig.apiUrl}`);
 
   while (true) {
     await throttler.waitForNextSlot();
+    page++;
 
     let data: WorkdayResponse;
     try {
@@ -273,6 +277,9 @@ export async function fetchWorkdayJobs(
       all.push(job);
     }
 
+    const totalStr = total !== null ? String(total) : '?';
+    console.log(`[workday] Page ${page}: ${pageCount} jobs (${all.length} / ${totalStr} total)`);
+
     if (pageCount === 0) {
       break;
     }
@@ -287,6 +294,8 @@ export async function fetchWorkdayJobs(
       break;
     }
   }
+
+  console.log(`[workday] Listing complete: ${all.length} job${all.length !== 1 ? 's' : ''} across ${page} page${page !== 1 ? 's' : ''}`);
 
   if (!enrichDetails || all.length === 0) {
     return all;
@@ -313,9 +322,10 @@ export async function fetchWorkdayJobs(
     return all;
   }
 
+  console.log(`[workday] Session established — enriching details for ${all.length} jobs`);
   const detailThrottler = createRequestThrottler(detailIntervalMs);
 
-  for (const job of all) {
+  for (const [i, job] of all.entries()) {
     const jobWithId = job as ScrapedJob & { _jobPostingId?: string };
     const jobPostingId = jobWithId._jobPostingId;
     delete jobWithId._jobPostingId;
@@ -323,6 +333,7 @@ export async function fetchWorkdayJobs(
     if (!jobPostingId) continue;
 
     await detailThrottler.waitForNextSlot();
+    console.log(`[workday] Detail ${i + 1}/${all.length} — ${jobPostingId}`);
 
     const jobPageUrl = job.url;
 
@@ -358,5 +369,6 @@ export async function fetchWorkdayJobs(
     }
   }
 
+  console.log(`[workday] Detail enrichment complete`);
   return all;
 }

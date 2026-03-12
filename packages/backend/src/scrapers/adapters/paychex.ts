@@ -56,6 +56,8 @@ export class PaychexScraper extends BaseScraper {
     let page = 1;
     let stagnantPages = 0;
 
+    console.log(`[paychex] Fetching listing: GET ${JOBS_URL} (Rochester, NY)`);
+
     while (true) {
       const data = await fetchPaychexPage(page, context);
       const pageJobs = data.jobs ?? [];
@@ -77,6 +79,8 @@ export class PaychexScraper extends BaseScraper {
       if (typeof data.totalCount === 'number') {
         totalCount = data.totalCount;
       }
+      const totalStr = totalCount !== undefined ? ` / ${totalCount} total` : '';
+      console.log(`[paychex] Page ${page}: ${pageJobs.length} jobs (running total: ${byId.size}${totalStr})`);
       if (pageJobs.length === 0) {
         break;
       }
@@ -86,6 +90,7 @@ export class PaychexScraper extends BaseScraper {
         stagnantPages = 0;
       }
       if (stagnantPages >= MAX_STAGNANT_PAGES) {
+        console.log(`[paychex] Stagnant page detected (${MAX_STAGNANT_PAGES} consecutive) — stopping pagination`);
         break;
       }
       if (totalCount !== undefined && byId.size >= totalCount) {
@@ -95,15 +100,18 @@ export class PaychexScraper extends BaseScraper {
     }
 
     const jobs = [...byId.values()];
+    console.log(`[paychex] Listing complete: ${jobs.length} job${jobs.length !== 1 ? 's' : ''}`);
 
     // -------------------------------------------------------------------------
     // Detail enrichment: the Jibe listing API's description field is company
     // boilerplate (identical for every job). Fetch each iCIMS job view page
     // (/login → /job) to get the real job-specific description.
     // -------------------------------------------------------------------------
+    console.log(`[paychex] Enriching details for ${jobs.length} jobs`);
     const detailThrottler = createRequestThrottler(config.scraper.detailIntervalMs);
-    for (const job of jobs) {
+    for (const [i, job] of jobs.entries()) {
       await detailThrottler.waitForNextSlot();
+      console.log(`[paychex] Detail ${i + 1}/${jobs.length} — ${job.url}`);
       try {
         const detail = await fetchPaychexJobDetail(job.url, config.scraper.userAgent, config.scraper.timeoutMs);
         if (detail.descriptionHtml) job.descriptionHtml = detail.descriptionHtml;
@@ -112,6 +120,7 @@ export class PaychexScraper extends BaseScraper {
       }
     }
 
+    console.log(`[paychex] Detail enrichment complete`);
     return jobs;
   }
 }
