@@ -42,11 +42,10 @@ docker compose up
 curl http://localhost:3000/health
 ```
 
-4. Start the frontend dev server (separate terminal):
+4. Open the frontend:
 
 ```bash
-npm --workspace @roc-job-radar/frontend run dev
-# Dashboard available at http://localhost:5173
+http://localhost:3001
 ```
 
 ## Runtime Modes
@@ -95,7 +94,7 @@ npm --workspace @roc-job-radar/backend run db:generate
 # db seed
 npm --workspace @roc-job-radar/backend run db:seed
 
-# frontend dev server (port 5173)
+# frontend dev server without Docker (port 5173)
 npm --workspace @roc-job-radar/frontend run dev
 
 # frontend tests
