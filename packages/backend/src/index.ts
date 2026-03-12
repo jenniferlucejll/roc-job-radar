@@ -1,6 +1,9 @@
 import { createApp } from './server.js';
 import { config } from './config.js';
 import { startScheduler } from './scheduler.js';
+import { clearStaleRunningRuns } from './scrapers/pipeline.js';
+
+await clearStaleRunningRuns();
 
 const app = createApp();
 startScheduler();

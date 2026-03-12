@@ -58,6 +58,14 @@ const state: ScrapeState = {
 
 const DEFAULT_STATUS_RECENT_RUNS = 10;
 
+/**
+ * Call once at startup to mark any leftover 'running' records as 'failed'.
+ * Prevents a server restart from permanently blocking new scrapes.
+ */
+export async function clearStaleRunningRuns(): Promise<void> {
+  await clearRunningScrapeRuns(new Date());
+}
+
 export async function getScrapeStatus(limit = DEFAULT_STATUS_RECENT_RUNS): Promise<{
   running: boolean;
   lastResult: ScrapeResult | null;
