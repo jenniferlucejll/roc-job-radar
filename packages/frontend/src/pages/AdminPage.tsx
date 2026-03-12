@@ -90,6 +90,7 @@ export function AdminPage() {
   const [employers, setEmployers] = useState<Employer[]>([])
   const [jobStats, setJobStats] = useState<{ active: number; newThisWeek: number; removed: number } | null>(null)
   const [triggering, setTriggering] = useState(false)
+  const [triggeringEmployer, setTriggeringEmployer] = useState<string | null>(null)
   const wasRunning = useRef(false)
 
   const refreshStatus = useCallback(() => {
@@ -124,6 +125,16 @@ export function AdminPage() {
     const interval = setInterval(refreshStatus, scrapeStatus?.running ? 5_000 : 30_000)
     return () => clearInterval(interval)
   }, [refreshStatus, scrapeStatus?.running])
+
+  async function handleScrapeEmployer(key: string) {
+    setTriggeringEmployer(key)
+    try {
+      await triggerScrape(key)
+      refreshStatus()
+    } finally {
+      setTriggeringEmployer(null)
+    }
+  }
 
   async function handleRunNow() {
     setTriggering(true)
@@ -257,7 +268,8 @@ export function AdminPage() {
                   <th className="pb-2 pr-4 font-medium">Name</th>
                   <th className="pb-2 pr-4 font-medium">ATS Type</th>
                   <th className="pb-2 pr-4 font-medium">Status</th>
-                  <th className="pb-2 font-medium">Career URL</th>
+                  <th className="pb-2 pr-4 font-medium">Career URL</th>
+                  <th className="pb-2 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -270,7 +282,7 @@ export function AdminPage() {
                         {emp.active ? 'active' : 'inactive'}
                       </span>
                     </td>
-                    <td className="py-2">
+                    <td className="py-2 pr-4">
                       <a
                         href={emp.careerUrl}
                         target="_blank"
@@ -279,6 +291,15 @@ export function AdminPage() {
                       >
                         {emp.careerUrl}
                       </a>
+                    </td>
+                    <td className="py-2 pl-3">
+                      <button
+                        onClick={() => handleScrapeEmployer(emp.key)}
+                        disabled={running || triggeringEmployer === emp.key || !emp.active}
+                        className="px-3 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {triggeringEmployer === emp.key ? 'Starting…' : 'Scrape'}
+                      </button>
                     </td>
                   </tr>
                 ))}

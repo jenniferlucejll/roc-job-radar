@@ -212,7 +212,7 @@ describe('fetchScrapeStatus', () => {
 // ─── triggerScrape ────────────────────────────────────────────────────────────
 
 describe('triggerScrape', () => {
-  it('POSTs to /api/scrape', async () => {
+  it('POSTs to /api/scrape with no body when no employerKey given', async () => {
     const spy = vi.fn().mockResolvedValue({
       ok: true,
       status: 202,
@@ -220,7 +220,22 @@ describe('triggerScrape', () => {
     })
     vi.stubGlobal('fetch', spy)
     await triggerScrape()
-    expect(spy).toHaveBeenCalledWith('/api/scrape', { method: 'POST' })
+    expect(spy).toHaveBeenCalledWith('/api/scrape', { method: 'POST', headers: undefined, body: undefined })
+  })
+
+  it('POSTs with JSON body and Content-Type header when employerKey given', async () => {
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ started: true, runId: 'run-paychex' }),
+    })
+    vi.stubGlobal('fetch', spy)
+    await triggerScrape('paychex')
+    expect(spy).toHaveBeenCalledWith('/api/scrape', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"employerKey":"paychex"}',
+    })
   })
 
   it('returns started=true and runId on 202', async () => {
@@ -233,6 +248,16 @@ describe('triggerScrape', () => {
     expect(result).toEqual({ started: true, runId: 'xyz' })
   })
 
+  it('returns started=true and runId on 202 with employerKey', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ started: true, runId: 'run-wegmans' }),
+    }))
+    const result = await triggerScrape('wegmans')
+    expect(result).toEqual({ started: true, runId: 'run-wegmans' })
+  })
+
   it('returns started=false with empty runId on 409 (already running)', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: false,
@@ -240,6 +265,16 @@ describe('triggerScrape', () => {
       json: () => Promise.resolve({ started: false }),
     }))
     const result = await triggerScrape()
+    expect(result).toEqual({ started: false, runId: '' })
+  })
+
+  it('returns started=false with empty runId on 409 when employerKey given', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ started: false }),
+    }))
+    const result = await triggerScrape('paychex')
     expect(result).toEqual({ started: false, runId: '' })
   })
 

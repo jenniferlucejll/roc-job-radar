@@ -3,9 +3,20 @@ import { triggerPipeline, getScrapeStatus } from '../../scrapers/pipeline.js';
 
 export const scrapeRouter = Router();
 
-scrapeRouter.post('/', async (_req, res, next) => {
+scrapeRouter.post('/', async (req, res, next) => {
   try {
-    const runId = await triggerPipeline();
+    const body = req.body as Record<string, unknown> | undefined;
+    const employerKey = body?.employerKey;
+
+    if (employerKey !== undefined && (typeof employerKey !== 'string' || employerKey.trim() === '')) {
+      res.status(400).json({
+        error: 'employerKey must be a non-empty string',
+        code: 'INVALID_EMPLOYER_KEY',
+      });
+      return;
+    }
+
+    const runId = await triggerPipeline(typeof employerKey === 'string' ? employerKey.trim() : undefined);
     if (!runId) {
       res.status(409).json({
         error: 'Scrape already in progress',

@@ -95,7 +95,7 @@ export async function getScrapeStatus(limit = DEFAULT_STATUS_RECENT_RUNS): Promi
  */
 let runSequence = 0;
 
-export async function triggerPipeline(): Promise<string | null> {
+export async function triggerPipeline(employerKey?: string): Promise<string | null> {
   if (state.running) return null;
 
   // Guard against post-restart duplicates: check DB for an in-flight run
@@ -107,7 +107,7 @@ export async function triggerPipeline(): Promise<string | null> {
   state.lastStartedAt = new Date();
   const runId = state.currentRunId;
 
-  runPipeline(runId)
+  runPipeline(runId, employerKey)
     .then((result) => {
       state.lastResult = result;
     })
@@ -126,7 +126,7 @@ export async function triggerPipeline(): Promise<string | null> {
 // Pipeline internals
 // ---------------------------------------------------------------------------
 
-async function runPipeline(runId: string): Promise<ScrapeResult> {
+async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeResult> {
   const startedAt = new Date();
   let employersRun = 0;
   let jobsInserted = 0;
@@ -144,12 +144,16 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
     .from(employers)
     .where(eq(employers.active, true));
 
+  const employersToRun = employerKey
+    ? activeEmployers.filter((e) => e.key === employerKey)
+    : activeEmployers;
+
   await startScrapeRunRecord(runId, startedAt);
 
-  const employerIds = activeEmployers.map((employer) => employer.id);
+  const employerIds = employersToRun.map((employer) => employer.id);
 
   try {
-    for (const employer of activeEmployers) {
+    for (const employer of employersToRun) {
       employersRun++;
 
       const adapter = adapters.get(employer.key);

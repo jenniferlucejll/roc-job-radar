@@ -39,11 +39,16 @@ export async function fetchScrapeStatus(limit = 10): Promise<ScrapeStatusRespons
   return get<ScrapeStatusResponse>(`/api/scrape/status?limit=${limit}`)
 }
 
-export async function triggerScrape(): Promise<{ started: boolean; runId: string }> {
-  const res = await fetch('/api/scrape', { method: 'POST' })
+export async function triggerScrape(employerKey?: string): Promise<{ started: boolean; runId: string }> {
+  const bodyStr = employerKey !== undefined ? JSON.stringify({ employerKey }) : undefined
+  const res = await fetch('/api/scrape', {
+    method: 'POST',
+    headers: bodyStr !== undefined ? { 'Content-Type': 'application/json' } : undefined,
+    body: bodyStr,
+  })
   if (res.status === 409) {
-    const body = (await res.json()) as { started: boolean }
-    return { started: body.started, runId: '' }
+    const parsed = (await res.json()) as { started: boolean }
+    return { started: parsed.started, runId: '' }
   }
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<{ started: boolean; runId: string }>
