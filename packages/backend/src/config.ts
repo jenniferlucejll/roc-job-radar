@@ -16,6 +16,16 @@ function optionalInt(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function optionalBoolean(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name];
+  if (raw === undefined) {
+    return defaultValue;
+  }
+
+  const normalized = raw.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+}
+
 export const config = Object.freeze({
   db: {
     host: optional('POSTGRES_HOST', 'localhost'),
@@ -37,5 +47,16 @@ export const config = Object.freeze({
     requestIntervalMs: optionalInt('SCRAPE_REQUEST_INTERVAL_MS', 1_000),
     detailIntervalMs: optionalInt('SCRAPE_DETAIL_INTERVAL_MS', 3_000),
     userAgent: optional('USER_AGENT', 'roc-job-radar/1.0 (personal job monitoring tool)'),
+    ai: {
+      enabled: optionalBoolean('AI_ENABLED', false),
+      apiUrl: optional('OLLAMA_API_URL', 'http://127.0.0.1:11434/api/chat'),
+      model: optional('OLLAMA_MODEL', 'gemma3'),
+      timeoutMs: optionalInt('AI_REQ_TIMEOUT_MS', 60_000),
+      maxInputChars: optionalInt('AI_MAX_CHARS', 12_000),
+      requestMaxTokens: optionalInt('AI_REQUEST_MAX_TOKENS', 768),
+      maxParallelism: optionalInt('AI_MAX_PARALLELISM', 3),
+      maxRetries: optionalInt('AI_MAX_RETRIES', 1),
+      retryBaseDelayMs: optionalInt('AI_RETRY_BASE_DELAY_MS', 500),
+    },
   },
 });

@@ -1,4 +1,4 @@
-import { pgTable, serial, text, boolean, integer, timestamp, unique, index } from 'drizzle-orm/pg-core';
+import { pgTable, serial, text, boolean, integer, timestamp, unique, index, jsonb } from 'drizzle-orm/pg-core';
 
 export const employers = pgTable('employers', {
   id: serial('id').primaryKey(),
@@ -21,6 +21,23 @@ export const jobs = pgTable('jobs', {
   department: text('department'),
   descriptionHtml: text('description_html'),
   salaryRaw: text('salary_raw'),
+  salaryNormalizedRaw: text('salary_normalized_raw'),
+  salaryNormalizedMin: text('salary_normalized_min'),
+  salaryNormalizedMax: text('salary_normalized_max'),
+  salaryCurrency: text('salary_currency'),
+  salaryPeriod: text('salary_period'),
+  requirementsText: text('requirements_text'),
+  requirementsHtml: text('requirements_html'),
+  responsibilitiesText: text('responsibilities_text'),
+  responsibilitiesHtml: text('responsibilities_html'),
+  summaryText: text('summary_text'),
+  normalizedDescriptionText: text('normalized_description_text'),
+  normalizedDescriptionHtml: text('normalized_description_html'),
+  aiProvider: text('ai_provider'),
+  aiModel: text('ai_model'),
+  aiNormalizedAt: timestamp('ai_normalized_at'),
+  aiWarnings: jsonb('ai_warnings'),
+  aiPayload: jsonb('ai_payload'),
   datePostedAt: timestamp('date_posted_at'),
   firstSeenAt: timestamp('first_seen_at').notNull().defaultNow(),
   lastSeenAt: timestamp('last_seen_at').notNull().defaultNow(),

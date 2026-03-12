@@ -5,19 +5,21 @@ WORKDIR /app
 # Copy root workspace manifest and lockfile
 COPY package.json package-lock.json ./
 
-# Copy backend package manifest
+# Copy workspace manifests
 COPY packages/backend/package.json ./packages/backend/
+COPY packages/ai-agent/package.json ./packages/ai-agent/
 
-# Install backend workspace deps (locked)
-RUN npm ci --workspace=packages/backend
+# Install workspace deps (locked)
+RUN npm ci
 
 # Copy backend source
 COPY packages/backend/ ./packages/backend/
+COPY packages/ai-agent/ ./packages/ai-agent/
 
 WORKDIR /app/packages/backend
 
 # Build production artifacts so `npm run start` has a valid dist bundle
-RUN npm run build
+RUN npm run build --workspace @roc-job-radar/ai-agent && npm run build --workspace @roc-job-radar/backend
 
 EXPOSE 3000
 

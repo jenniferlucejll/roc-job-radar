@@ -108,33 +108,42 @@ npm run db:migrate         # apply pending migrations
 
 ### Migration verification (no shortcuts)
 
+Treat the migration ledger as authoritative: do not rely on file presence alone; confirm `drizzle.__drizzle_migrations` reflects applied migrations and the actual schema matches.
+
 Use this sequence when confirming latest migrations:
 
 ```bash
 cd packages/backend
 npm run db:generate        # should report no unexpected pending changes
 npm run db:migrate         # must be the only way schema changes are applied
+npm run db:verify-journal  # verify migration SQL, journal, and ledger consistency
 psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at FROM drizzle.__drizzle_migrations ORDER BY id DESC;"
 psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"
 ```
 
+CI also runs `npm --workspace @roc-job-radar/backend run db:verify-journal` on each push/PR in `.github/workflows/db-migration-ledger-check.yml`.
+
 - If a migration SQL file exists but wasn’t applied, verify Drizzle timestamp ordering: migrations are executed only when `created_at` in `drizzle.__drizzle_migrations` is older than the migration’s `when` value in `src/db/migrations/meta/_journal.json`.
-- Never manually alter tables or journal data to force schema alignment; use `npm run db:generate` + `npm run db:migrate` and re-check with SQL.
+- `npm run db:verify-journal` also validates `_journal.json` entry ordering (`when` values must be strictly increasing in `entries` order) before optional ledger checks.
+- Never hand-edit tables or `drizzle.__drizzle_migrations` to force schema alignment.
+- Never manually alter `_journal.json`.
+- Never manually alter migration metadata to force schema alignment; use `npm run db:generate` + `npm run db:migrate` and re-check with SQL.
 
 #### Migration troubleshooting checklist
 
 1. Confirm `.env.development` points at the intended database.
 2. Run `npm run db:generate`; if it creates a change unexpectedly, regenerate migrations before continuing.
 3. Run `npm run db:migrate`.
-4. Verify latest ledger rows:
+4. Run `npm run db:verify-journal` to confirm file/journal/ledger alignment.
+5. Verify latest ledger rows:
    - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at FROM drizzle.__drizzle_migrations ORDER BY id DESC;"`
-5. Verify expected schema objects:
+6. Verify expected schema objects:
    - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"`
-6. If a known migration file still seems unapplied, compare:
+7. If a known migration file still seems unapplied, compare:
    - `journal.entries[].when` in `src/db/migrations/meta/_journal.json`
    - current `created_at` ledger order in `drizzle.__drizzle_migrations`
    - then add a new ordered migration to apply the missing DDL instead of editing history.
-7. If the sequence is irreparably broken, prefer:
+8. If the sequence is irreparably broken, prefer:
    - spin up a fresh DB and re-run `db:migrate`, or
    - in a disposable local DB only, align `drizzle.__drizzle_migrations` with source history.
 
@@ -223,6 +232,8 @@ Authorship should remain the git user configured in the repository.
 
 - **TypeScript `strict: true`** everywhere. No `any` without a comment explaining why.
 - **Drizzle schema is the single source of truth** for DB structure. Never hand-edit migration SQL.
+- **Migration ledger is authoritative**; treat `drizzle.__drizzle_migrations` as the canonical applied-migration record.
+- **Never hand-edit tables or `drizzle.__drizzle_migrations`.** Reconciliation must go through migrations.
 - **Never hand-edit `_journal.json`.** The `when` timestamps in `packages/backend/src/db/migrations/meta/_journal.json` are set by `drizzle-kit generate` and must not be modified manually. Drizzle's migrator uses these timestamps as a watermark — editing them can silently cause migrations to be skipped. All schema changes must go through `npm run db:generate` (from `packages/backend`).
 - **Each employer adapter is self-contained.** All knowledge about a specific employer's site lives in its adapter file. Include a header comment documenting the ATS type, career URL, and `externalId` strategy used.
 - **Errors in scrapers are caught and logged, never thrown up to the pipeline.** The pipeline continues on per-employer failure.

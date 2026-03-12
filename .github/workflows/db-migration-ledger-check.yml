@@ -1,0 +1,29 @@
+name: DB Migration Ledger Check
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  migration-ledger-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify migration ledger alignment
+        run: npm --workspace @roc-job-radar/backend run db:verify-journal

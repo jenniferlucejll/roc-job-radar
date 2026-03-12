@@ -19,6 +19,23 @@ export interface Job {
   department: string | null
   descriptionHtml: string | null
   salaryRaw: string | null
+  salaryNormalizedRaw?: string | null
+  salaryNormalizedMin?: string | null
+  salaryNormalizedMax?: string | null
+  salaryCurrency?: string | null
+  salaryPeriod?: string | null
+  requirementsText?: string | null
+  requirementsHtml?: string | null
+  responsibilitiesText?: string | null
+  responsibilitiesHtml?: string | null
+  summaryText?: string | null
+  normalizedDescriptionText?: string | null
+  normalizedDescriptionHtml?: string | null
+  aiProvider?: string | null
+  aiModel?: string | null
+  aiNormalizedAt?: string | null
+  aiWarnings?: string[] | Record<string, unknown> | null
+  aiPayload?: Record<string, unknown> | null
   datePostedAt: string | null
   firstSeenAt: string
   lastSeenAt: string

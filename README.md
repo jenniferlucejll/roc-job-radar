@@ -109,9 +109,43 @@ Use this after any schema or migration change:
 ```bash
 npm --workspace @roc-job-radar/backend run db:generate
 npm --workspace @roc-job-radar/backend run db:migrate
+npm --workspace @roc-job-radar/backend run db:verify-journal
 psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at, hash FROM drizzle.__drizzle_migrations ORDER BY id DESC;"
 psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"
 ```
+
+`db:verify-journal` checks file/journal consistency and validates that `_journal.json` `entries[].when` values are strictly increasing in entry order.
+
+## AI normalization (Ollama / gemma3)
+
+- New package: `packages/ai-agent`
+- New backend columns:
+  - `salary_normalized_raw`
+  - `salary_normalized_min`
+  - `salary_normalized_max`
+  - `salary_currency`
+  - `salary_period`
+  - `requirements_text`
+  - `requirements_html`
+  - `responsibilities_text`
+  - `responsibilities_html`
+  - `summary_text`
+  - `normalized_description_text`
+  - `normalized_description_html`
+  - `ai_payload`
+  - `ai_provider`
+  - `ai_model`
+  - `ai_normalized_at`
+  - `ai_warnings`
+
+Ollama compose service and helper:
+
+```bash
+docker compose up
+docker compose exec ollama ollama pull gemma3
+```
+
+Set `AI_ENABLED=true` only when you want ingestion to call Ollama (off by default).
 
 ## Current Scope / Non-goals
 

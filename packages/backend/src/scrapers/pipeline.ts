@@ -7,6 +7,16 @@ import {
   scrapeRuns,
   scrapeRunEmployers,
 } from '../db/schema.js';
+import {
+  normalizeJobPosting,
+  parseSalaryRange,
+} from '@roc-job-radar/ai-agent';
+import type {
+  AiNormalizedJobData,
+  AiNormalizeOptions,
+  NormalizeJobPostingResult,
+  ScrapedJobInput,
+} from '@roc-job-radar/ai-agent';
 import { config } from '../config.js';
 import type {
   ScrapeEmployerSummary,
@@ -637,6 +647,7 @@ async function persistJobs(
   const errors: ScrapeError[] = [];
   const seenIds = new Set<number>();
   const normalized = normalizeScrapedJobs(scrapedJobs);
+  const enrichedJobs = await enrichJobsWithAi(normalized);
 
   const existing = await db
     .select({
@@ -649,6 +660,23 @@ async function persistJobs(
       department: jobs.department,
       descriptionHtml: jobs.descriptionHtml,
       salaryRaw: jobs.salaryRaw,
+      salaryNormalizedRaw: jobs.salaryNormalizedRaw,
+      salaryNormalizedMin: jobs.salaryNormalizedMin,
+      salaryNormalizedMax: jobs.salaryNormalizedMax,
+      salaryCurrency: jobs.salaryCurrency,
+      salaryPeriod: jobs.salaryPeriod,
+      requirementsText: jobs.requirementsText,
+      requirementsHtml: jobs.requirementsHtml,
+      responsibilitiesText: jobs.responsibilitiesText,
+      responsibilitiesHtml: jobs.responsibilitiesHtml,
+      summaryText: jobs.summaryText,
+      normalizedDescriptionText: jobs.normalizedDescriptionText,
+      normalizedDescriptionHtml: jobs.normalizedDescriptionHtml,
+      aiProvider: jobs.aiProvider,
+      aiModel: jobs.aiModel,
+      aiNormalizedAt: jobs.aiNormalizedAt,
+      aiWarnings: jobs.aiWarnings,
+      aiPayload: jobs.aiPayload,
       datePostedAt: jobs.datePostedAt,
       removedAt: jobs.removedAt,
     })
@@ -659,13 +687,41 @@ async function persistJobs(
   const existingByUrl = new Map(existing.map((j) => [j.url, j]));
   const scrapedExtIds = new Set(normalized.map((j) => j.externalId));
 
-  for (const job of normalized) {
+  for (const enriched of enrichedJobs) {
+    const job = enriched.job;
     if (!job.url || !job.externalId) continue;
+
+    if (enriched.aiError) {
+      const message = `AI normalization failed for ${job.externalId} (${job.url}): ${enriched.aiError}`;
+      errors.push({
+        errorType: 'ai_normalization_failed',
+        message,
+      });
+      await logError(employerId, 'ai_normalization_failed', message);
+    }
 
     const ex = existingByExtId.get(job.externalId);
     if (ex) {
       seenIds.add(ex.id);
-      const updatedValues = toPersistedJobValues(job, ex.externalId, now);
+      const updatedValues = toPersistedJobValues(job, employerId, ex.externalId, now, enriched.aiData, {
+        salaryNormalizedRaw: ex.salaryNormalizedRaw,
+        salaryNormalizedMin: ex.salaryNormalizedMin,
+        salaryNormalizedMax: ex.salaryNormalizedMax,
+        salaryCurrency: ex.salaryCurrency,
+        salaryPeriod: ex.salaryPeriod,
+        requirementsText: ex.requirementsText,
+        requirementsHtml: ex.requirementsHtml,
+        responsibilitiesText: ex.responsibilitiesText,
+        responsibilitiesHtml: ex.responsibilitiesHtml,
+        summaryText: ex.summaryText,
+        normalizedDescriptionText: ex.normalizedDescriptionText,
+        normalizedDescriptionHtml: ex.normalizedDescriptionHtml,
+        aiProvider: ex.aiProvider,
+        aiModel: ex.aiModel,
+        aiNormalizedAt: ex.aiNormalizedAt,
+        aiWarnings: ex.aiWarnings,
+        aiPayload: ex.aiPayload,
+      });
       await db
         .update(jobs)
         .set(updatedValues)
@@ -677,7 +733,25 @@ async function persistJobs(
     const byUrl = existingByUrl.get(job.url);
     if (byUrl) {
       seenIds.add(byUrl.id);
-      const updatedValues = toPersistedJobValues(job, byUrl.externalId, now);
+      const updatedValues = toPersistedJobValues(job, employerId, byUrl.externalId, now, enriched.aiData, {
+        salaryNormalizedRaw: byUrl.salaryNormalizedRaw,
+        salaryNormalizedMin: byUrl.salaryNormalizedMin,
+        salaryNormalizedMax: byUrl.salaryNormalizedMax,
+        salaryCurrency: byUrl.salaryCurrency,
+        salaryPeriod: byUrl.salaryPeriod,
+        requirementsText: byUrl.requirementsText,
+        requirementsHtml: byUrl.requirementsHtml,
+        responsibilitiesText: byUrl.responsibilitiesText,
+        responsibilitiesHtml: byUrl.responsibilitiesHtml,
+        summaryText: byUrl.summaryText,
+        normalizedDescriptionText: byUrl.normalizedDescriptionText,
+        normalizedDescriptionHtml: byUrl.normalizedDescriptionHtml,
+        aiProvider: byUrl.aiProvider,
+        aiModel: byUrl.aiModel,
+        aiNormalizedAt: byUrl.aiNormalizedAt,
+        aiWarnings: byUrl.aiWarnings,
+        aiPayload: byUrl.aiPayload,
+      });
       await db
         .update(jobs)
         .set(updatedValues)
@@ -687,20 +761,8 @@ async function persistJobs(
     }
 
     try {
-      await db.insert(jobs).values({
-        employerId,
-        externalId: job.externalId,
-        title: job.title,
-        url: job.url,
-        location: job.location ?? null,
-        remoteStatus: job.remoteStatus ?? null,
-        department: job.department ?? null,
-        descriptionHtml: job.descriptionHtml ?? null,
-        salaryRaw: job.salaryRaw ?? null,
-        datePostedAt: job.datePostedAt ?? null,
-        firstSeenAt: now,
-        lastSeenAt: now,
-      });
+      const nowValues = toPersistedJobValues(job, employerId, job.externalId, now, enriched.aiData);
+      await db.insert(jobs).values(nowValues);
       inserted++;
     } catch (err: unknown) {
       if (isUniqueConstraintViolation(err)) {
@@ -738,21 +800,208 @@ async function logError(
 
 function toPersistedJobValues(
   job: Awaited<ReturnType<BaseScraper['scrape']>>[number],
+  employerId: number,
   stableExternalId: string,
   now: Date,
-): Partial<(typeof jobs)['$inferInsert']> {
+  aiData?: AiNormalizedJobData,
+  existingAiValues?: {
+    salaryNormalizedRaw: string | null;
+    salaryNormalizedMin: string | null;
+    salaryNormalizedMax: string | null;
+    salaryCurrency: string | null;
+    salaryPeriod: string | null;
+    requirementsText: string | null;
+    requirementsHtml: string | null;
+    responsibilitiesText: string | null;
+    responsibilitiesHtml: string | null;
+    summaryText: string | null;
+    normalizedDescriptionText: string | null;
+    normalizedDescriptionHtml: string | null;
+    aiProvider: string | null;
+    aiModel: string | null;
+    aiNormalizedAt: Date | null;
+    aiWarnings: unknown;
+    aiPayload: unknown;
+  },
+): Omit<(typeof jobs)['$inferInsert'], 'id'> {
+
+  const fallbackSalary = parseSalaryRange(job.salaryRaw);
+  const parsedSalaryMin = aiData?.salaryMin ?? fallbackSalary.min;
+  const parsedSalaryMax = aiData?.salaryMax ?? fallbackSalary.max;
+  const parsedSalaryCurrency = aiData?.salaryCurrency ?? fallbackSalary.currency;
+  const parsedSalaryPeriod = aiData?.salaryPeriod ?? fallbackSalary.period;
+  const hasExistingAi = existingAiValues !== undefined;
+  const normalizedSalaryRaw =
+    aiData?.salaryRaw ??
+    (hasExistingAi
+      ? existingAiValues.salaryNormalizedRaw
+      : parsedSalaryMin || parsedSalaryMax
+        ? `${parsedSalaryMin ?? ''}${parsedSalaryMax ? `-${parsedSalaryMax}` : ''}`.trim()
+        : undefined);
+
+  const resolvedSalaryMin = aiData?.salaryMin ?? (hasExistingAi ? existingAiValues.salaryNormalizedMin : parsedSalaryMin);
+  const resolvedSalaryMax = aiData?.salaryMax ?? (hasExistingAi ? existingAiValues.salaryNormalizedMax : parsedSalaryMax);
+  const resolvedSalaryCurrency = aiData?.salaryCurrency ?? (hasExistingAi
+    ? existingAiValues.salaryCurrency
+    : parsedSalaryCurrency);
+  const resolvedSalaryPeriod = aiData?.salaryPeriod ?? (hasExistingAi
+    ? existingAiValues.salaryPeriod
+    : parsedSalaryPeriod);
+  const resolvedAiProvider = aiData?.provider ?? (hasExistingAi ? existingAiValues.aiProvider : undefined);
+  const resolvedAiModel = aiData?.model ?? (hasExistingAi ? existingAiValues.aiModel : undefined);
+  const resolvedAiNormalizedAt = aiData?.normalizedAt ?? (hasExistingAi ? existingAiValues.aiNormalizedAt?.toISOString() : undefined);
+  const resolvedAiWarnings = aiData?.warnings !== undefined
+    ? aiData.warnings
+    : hasExistingAi
+      ? existingAiValues.aiWarnings
+      : undefined;
+  const resolvedRequirementsText = aiData?.requirementsText ?? (hasExistingAi ? existingAiValues.requirementsText : undefined);
+  const resolvedRequirementsHtml = aiData?.requirementsHtml ?? (hasExistingAi ? existingAiValues.requirementsHtml : undefined);
+  const resolvedResponsibilitiesText = aiData?.responsibilitiesText ?? (hasExistingAi ? existingAiValues.responsibilitiesText : undefined);
+  const resolvedResponsibilitiesHtml = aiData?.responsibilitiesHtml ?? (hasExistingAi ? existingAiValues.responsibilitiesHtml : undefined);
+  const resolvedSummaryText = aiData?.summaryText ?? (hasExistingAi ? existingAiValues.summaryText : undefined);
+  const resolvedNormalizedDescriptionText = aiData?.normalizedDescriptionText ?? (hasExistingAi
+    ? existingAiValues.normalizedDescriptionText
+    : undefined);
+  const resolvedNormalizedDescriptionHtml = aiData?.normalizedDescriptionHtml ?? (hasExistingAi
+    ? existingAiValues.normalizedDescriptionHtml
+    : undefined);
+  const resolvedAiPayload = aiData
+    ? {
+      salaryRaw: aiData.salaryRaw,
+      salaryMin: aiData.salaryMin,
+      salaryMax: aiData.salaryMax,
+      salaryCurrency: aiData.salaryCurrency,
+      salaryPeriod: aiData.salaryPeriod,
+      requirementsText: aiData.requirementsText,
+      requirementsHtml: aiData.requirementsHtml,
+      responsibilitiesText: aiData.responsibilitiesText,
+      responsibilitiesHtml: aiData.responsibilitiesHtml,
+      summaryText: aiData.summaryText,
+      normalizedDescriptionText: aiData.normalizedDescriptionText,
+      normalizedDescriptionHtml: aiData.normalizedDescriptionHtml,
+      otherJobData: aiData.otherJobData,
+      provider: aiData.provider,
+      model: aiData.model,
+      normalizedAt: aiData.normalizedAt,
+      rawModelResponse: aiData.rawModelResponse,
+    }
+    : hasExistingAi
+      ? existingAiValues.aiPayload
+      : null;
+
+  const payload = resolvedAiPayload;
+
   return {
+    employerId,
     externalId: stableExternalId,
+    url: job.url,
     title: job.title,
     location: job.location ?? null,
     remoteStatus: job.remoteStatus ?? null,
     department: job.department ?? null,
     descriptionHtml: job.descriptionHtml ?? null,
     salaryRaw: job.salaryRaw ?? null,
+    salaryNormalizedRaw: normalizedSalaryRaw ?? null,
+    salaryNormalizedMin: resolvedSalaryMin ?? null,
+    salaryNormalizedMax: resolvedSalaryMax ?? null,
+    salaryCurrency: resolvedSalaryCurrency ?? null,
+    salaryPeriod: resolvedSalaryPeriod ?? null,
+    requirementsText: resolvedRequirementsText ?? null,
+    requirementsHtml: resolvedRequirementsHtml ?? null,
+    responsibilitiesText: resolvedResponsibilitiesText ?? null,
+    responsibilitiesHtml: resolvedResponsibilitiesHtml ?? null,
+    summaryText: resolvedSummaryText ?? null,
+    normalizedDescriptionText: resolvedNormalizedDescriptionText ?? null,
+    normalizedDescriptionHtml: resolvedNormalizedDescriptionHtml ?? null,
+    aiProvider: resolvedAiProvider ?? null,
+    aiModel: resolvedAiModel ?? null,
+    aiNormalizedAt: resolvedAiNormalizedAt ? new Date(resolvedAiNormalizedAt) : null,
+    aiWarnings: resolvedAiWarnings ?? null,
+    aiPayload: payload,
     datePostedAt: job.datePostedAt ?? null,
     removedAt: null,
     lastSeenAt: now,
   };
+}
+
+interface EnrichedJob {
+  job: Awaited<ReturnType<BaseScraper['scrape']>>[number];
+  aiData?: AiNormalizedJobData;
+  aiError?: string;
+}
+
+function buildAiOptions(): AiNormalizeOptions {
+  return {
+    enabled: config.scraper.ai.enabled,
+    apiUrl: config.scraper.ai.apiUrl,
+    model: config.scraper.ai.model,
+    timeoutMs: config.scraper.ai.timeoutMs,
+    maxInputChars: config.scraper.ai.maxInputChars,
+    requestMaxTokens: config.scraper.ai.requestMaxTokens,
+    maxRetries: config.scraper.ai.maxRetries,
+    retryBaseDelayMs: config.scraper.ai.retryBaseDelayMs,
+  };
+}
+
+async function enrichJobsWithAi(
+  jobsToNormalize: Awaited<ReturnType<BaseScraper['scrape']>>,
+): Promise<EnrichedJob[]> {
+  const options = buildAiOptions();
+  const enriched: EnrichedJob[] = jobsToNormalize.map((job) => ({ job }));
+
+  if (!options.enabled) {
+    return enriched;
+  }
+
+  const limit = Math.max(1, config.scraper.ai.maxParallelism);
+  const inFlight = new Set<Promise<void>>();
+
+  let idx = 0;
+  const run = async (): Promise<void> => {
+    while (idx < jobsToNormalize.length) {
+      const current = idx;
+      idx += 1;
+
+      const job = jobsToNormalize[current];
+      if (!job.descriptionHtml?.trim()) {
+        continue;
+      }
+
+      const input: ScrapedJobInput = {
+        title: job.title,
+        location: job.location,
+        department: job.department,
+        salaryRaw: job.salaryRaw,
+        descriptionHtml: job.descriptionHtml,
+      };
+
+      try {
+        const result: NormalizeJobPostingResult = await normalizeJobPosting(input, options);
+
+        if (result.success) {
+          enriched[current].aiData = result.data;
+          continue;
+        }
+
+        enriched[current].aiError = `AI error (${result.error.code}): ${result.error.message}`;
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        enriched[current].aiError = `AI call failure: ${message}`;
+      }
+    }
+  };
+
+  for (let i = 0; i < limit; i += 1) {
+    const worker = run();
+    inFlight.add(worker);
+    worker.finally(() => {
+      inFlight.delete(worker);
+    });
+  }
+
+  await Promise.all(inFlight);
+  return enriched;
 }
 
 function normalizeScrapedJobs(
