@@ -5,7 +5,7 @@ Local Rochester job radar: scrape selected employer career sites, persist postin
 ## Current Status
 
 - Backend implemented and actively developed
-- Frontend workspace exists but UI implementation is deferred
+- Frontend implemented — 3-page dashboard (Jobs, Admin, Analytics)
 
 ## Current Functionality
 
@@ -37,6 +37,13 @@ docker compose up
 
 ```bash
 curl http://localhost:3000/health
+```
+
+4. Start the frontend dev server (separate terminal):
+
+```bash
+npm --workspace @roc-job-radar/frontend run dev
+# Dashboard available at http://localhost:5173
 ```
 
 ## Runtime Modes
@@ -81,14 +88,19 @@ npm --workspace @roc-job-radar/backend run db:migrate
 
 # db seed
 npm --workspace @roc-job-radar/backend run db:seed
+
+# frontend dev server (port 5173)
+npm --workspace @roc-job-radar/frontend run dev
+
+# frontend tests
+npm --workspace @roc-job-radar/frontend test
 ```
 
 ## Current Scope / Non-goals
 
 - No authentication (personal/local tool)
-- No notifications yet
+- No notifications
 - No multi-user support
-- Frontend feature development deferred while backend ingestion/reliability is hardened
 
 ## License
 
