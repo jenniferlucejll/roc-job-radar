@@ -5,6 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const BASE_ENV = {
   POSTGRES_PASSWORD: 'test-password',
+  SCRAPE_CRON: '0 8 * * *',
 };
 
 beforeEach(() => {
@@ -12,7 +13,7 @@ beforeEach(() => {
   // Clear all relevant env vars before each test
   for (const key of [
     'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
-    'PORT', 'SERVER_HOST', 'NODE_ENV', 'SCRAPE_CRON', 'SCRAPE_TIMEOUT_MS', 'SCRAPE_MAX_RETRY_ATTEMPTS', 'SCRAPE_RETRY_BASE_DELAY_MS', 'SCRAPE_REQUEST_INTERVAL_MS', 'USER_AGENT',
+    'PORT', 'SERVER_HOST', 'NODE_ENV', 'SCRAPE_CRON', 'SCRAPE_TIMEOUT_MS', 'SCRAPE_MAX_RETRY_ATTEMPTS', 'SCRAPE_RETRY_BASE_DELAY_MS', 'SCRAPE_REQUEST_INTERVAL_MS', 'SCRAPE_DETAIL_INTERVAL_MS', 'USER_AGENT',
   ]) {
     delete process.env[key];
   }
@@ -28,6 +29,12 @@ describe('config', () => {
     await expect(loadConfig()).rejects.toThrow('Missing required environment variable: POSTGRES_PASSWORD');
   });
 
+  it('throws when SCRAPE_CRON is missing', async () => {
+    Object.assign(process.env, { POSTGRES_PASSWORD: BASE_ENV.POSTGRES_PASSWORD });
+    delete process.env.SCRAPE_CRON;
+    await expect(loadConfig()).rejects.toThrow('Missing required environment variable: SCRAPE_CRON');
+  });
+
   it('returns defaults when only required vars are set', async () => {
     Object.assign(process.env, BASE_ENV);
     const config = await loadConfig();
@@ -40,11 +47,12 @@ describe('config', () => {
     expect(config.server.host).toBe('127.0.0.1');
     expect(config.server.port).toBe(3000);
     expect(config.server.nodeEnv).toBe('development');
-    expect(config.scraper.cron).toBe('0 */6 * * *');
+    expect(config.scraper.cron).toBe('0 8 * * *');
     expect(config.scraper.timeoutMs).toBe(30_000);
     expect(config.scraper.maxRetryAttempts).toBe(3);
     expect(config.scraper.retryBaseDelayMs).toBe(1_000);
     expect(config.scraper.requestIntervalMs).toBe(1_000);
+    expect(config.scraper.detailIntervalMs).toBe(3_000);
   });
 
   it('reads overridden values from env', async () => {

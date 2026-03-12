@@ -6,6 +6,7 @@ Local Rochester job radar: scrape selected employer career sites, persist postin
 
 - Backend implemented and actively developed
 - Frontend implemented — 3-page dashboard (Jobs, Admin, Analytics)
+- Migration flow aligned with Drizzle ledger checks
 
 ## Current Functionality
 
@@ -16,7 +17,9 @@ Local Rochester job radar: scrape selected employer career sites, persist postin
   - L3Harris
 - Applies Rochester-area location filtering during ingestion
 - Persists job lifecycle (`first_seen_at`, `last_seen_at`, `removed_at`)
-- Runs scheduled scrapes (default every 6 hours)
+- Runs scheduled scrapes (default configured via `SCRAPE_CRON`)
+- Default schedule value:
+  - `SCRAPE_CRON=0 8 * * *` (once daily, from `.env.example`)
 - Supports manual scrape trigger
 - Tracks scrape run history and per-employer metrics (attempts, retries, errors)
 
@@ -86,6 +89,9 @@ npm --workspace @roc-job-radar/backend run build
 # db migration apply
 npm --workspace @roc-job-radar/backend run db:migrate
 
+# db migration diff/check
+npm --workspace @roc-job-radar/backend run db:generate
+
 # db seed
 npm --workspace @roc-job-radar/backend run db:seed
 
@@ -94,6 +100,17 @@ npm --workspace @roc-job-radar/frontend run dev
 
 # frontend tests
 npm --workspace @roc-job-radar/frontend test
+```
+
+## Migration validation (required)
+
+Use this after any schema or migration change:
+
+```bash
+npm --workspace @roc-job-radar/backend run db:generate
+npm --workspace @roc-job-radar/backend run db:migrate
+psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at, hash FROM drizzle.__drizzle_migrations ORDER BY id DESC;"
+psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"
 ```
 
 ## Current Scope / Non-goals

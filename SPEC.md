@@ -175,7 +175,8 @@ A job is retained when its location is recognized as greater Rochester (NY indic
 ## 8. Scheduler and Scrape Status
 
 - In-process scheduler via `node-cron`
-- Default cron: `0 */6 * * *` (`SCRAPE_CRON`)
+- Default cron: `0 8 * * *` (`SCRAPE_CRON`)
+- `SCRAPE_CRON` is required at startup; set it explicitly in `.env` (for example: `0 8 * * *`)
 - Manual run trigger: `POST /api/scrape`
 - Single-run lock: only one run executes at a time
 - Status endpoint returns:
@@ -210,7 +211,7 @@ Defined in `.env.example` and loaded for backend runtime.
 Core:
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
 - `SERVER_HOST`, `PORT`, `NODE_ENV`
-- `SCRAPE_CRON`, `SCRAPE_TIMEOUT_MS`, `SCRAPE_MAX_RETRY_ATTEMPTS`, `SCRAPE_RETRY_BASE_DELAY_MS`, `SCRAPE_REQUEST_INTERVAL_MS`, `USER_AGENT`
+- `SCRAPE_CRON`, `SCRAPE_TIMEOUT_MS`, `SCRAPE_MAX_RETRY_ATTEMPTS`, `SCRAPE_RETRY_BASE_DELAY_MS`, `SCRAPE_REQUEST_INTERVAL_MS`, `SCRAPE_DETAIL_INTERVAL_MS`, `USER_AGENT`
 
 ---
 

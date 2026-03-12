@@ -62,6 +62,7 @@ export interface ScrapeEmployerSummary {
   retryAttempts: number;
   unresolvedErrors: number;
   errors: ScrapeErrorDetail[];
+  durationMs: number;
 }
 
 export interface ScrapeErrorDetail {

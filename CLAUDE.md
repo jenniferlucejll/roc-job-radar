@@ -43,7 +43,8 @@ docker-compose.override.yml  Dev overrides (hot reload, host port exposure)
 - `scrape.ts` — `POST /api/scrape` (manual trigger), `GET /api/scrape/status`
 
 **Scheduler** (`packages/backend/src/scheduler.ts`)
-- node-cron, schedule configurable via `SCRAPE_CRON` env var (default: every 6h)
+  - node-cron, schedule configurable via `SCRAPE_CRON`.
+  - schedule runs once daily; required default is set in `.env` as `0 8 * * *`.
 - Only one scrape run at a time (idempotent)
 
 ### Frontend (`packages/frontend/src/`)
@@ -104,6 +105,40 @@ cd packages/backend
 npm run db:generate        # generate migration from schema changes (drizzle-kit)
 npm run db:migrate         # apply pending migrations
 ```
+
+### Migration verification (no shortcuts)
+
+Use this sequence when confirming latest migrations:
+
+```bash
+cd packages/backend
+npm run db:generate        # should report no unexpected pending changes
+npm run db:migrate         # must be the only way schema changes are applied
+psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at FROM drizzle.__drizzle_migrations ORDER BY id DESC;"
+psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"
+```
+
+- If a migration SQL file exists but wasn’t applied, verify Drizzle timestamp ordering: migrations are executed only when `created_at` in `drizzle.__drizzle_migrations` is older than the migration’s `when` value in `src/db/migrations/meta/_journal.json`.
+- Never manually alter tables or journal data to force schema alignment; use `npm run db:generate` + `npm run db:migrate` and re-check with SQL.
+
+#### Migration troubleshooting checklist
+
+1. Confirm `.env.development` points at the intended database.
+2. Run `npm run db:generate`; if it creates a change unexpectedly, regenerate migrations before continuing.
+3. Run `npm run db:migrate`.
+4. Verify latest ledger rows:
+   - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at FROM drizzle.__drizzle_migrations ORDER BY id DESC;"`
+5. Verify expected schema objects:
+   - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"`
+6. If a known migration file still seems unapplied, compare:
+   - `journal.entries[].when` in `src/db/migrations/meta/_journal.json`
+   - current `created_at` ledger order in `drizzle.__drizzle_migrations`
+   - then add a new ordered migration to apply the missing DDL instead of editing history.
+7. If the sequence is irreparably broken, prefer:
+   - spin up a fresh DB and re-run `db:migrate`, or
+   - in a disposable local DB only, align `drizzle.__drizzle_migrations` with source history.
+
+Never hand-delete or hand-edit migration metadata on shared/production databases.
 
 ### Trigger a scrape manually
 ```bash
@@ -221,6 +256,9 @@ Copy `.env.example` to `.env.development` and fill in values before running.
 Key env vars:
 - `POSTGRES_*` — DB connection
 - `SCRAPE_CRON` — cron expression for scheduler
+  - required at startup (`config.ts` reads this as required)
+  - default in `.env.example` is `0 8 * * *` (once daily)
+- `SCRAPE_DETAIL_INTERVAL_MS` — delay between Workday detail fetches for enrichment (default: 3000ms)
 - `USER_AGENT` — sent with all HTTP requests to employer sites
 - `SCRAPE_TIMEOUT_MS` — per-request timeout
 

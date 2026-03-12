@@ -30,11 +30,12 @@ export const config = Object.freeze({
     nodeEnv: optional('NODE_ENV', 'development'),
   },
   scraper: {
-    cron: optional('SCRAPE_CRON', '0 */6 * * *'),
+    cron: required('SCRAPE_CRON'),
     timeoutMs: optionalInt('SCRAPE_TIMEOUT_MS', 30_000),
     maxRetryAttempts: optionalInt('SCRAPE_MAX_RETRY_ATTEMPTS', 3),
     retryBaseDelayMs: optionalInt('SCRAPE_RETRY_BASE_DELAY_MS', 1000),
     requestIntervalMs: optionalInt('SCRAPE_REQUEST_INTERVAL_MS', 1_000),
+    detailIntervalMs: optionalInt('SCRAPE_DETAIL_INTERVAL_MS', 3_000),
     userAgent: optional('USER_AGENT', 'roc-job-radar/1.0 (personal job monitoring tool)'),
   },
 });

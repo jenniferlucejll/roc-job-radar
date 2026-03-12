@@ -167,7 +167,9 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
         retryAttempts: 0,
         unresolvedErrors: 0,
         errors: [],
+        durationMs: 0,
       };
+      const employerStartMs = Date.now();
 
       const onRequestAttempt = (attemptInfo: { attempt: number }): void => {
         employerSummary.requestAttempts++;
@@ -254,6 +256,7 @@ async function runPipeline(runId: string): Promise<ScrapeResult> {
         employerSummary.errors.push({ errorType, message });
         console.error(`[pipeline] ${employer.key} failed: ${message}`);
       } finally {
+        employerSummary.durationMs = Date.now() - employerStartMs;
         employerSummaries.push(employerSummary);
       }
     }
@@ -462,6 +465,7 @@ async function getLatestCompletedScrapeResult(): Promise<ScrapeResult | null> {
       retryAttempts: scrapeRunEmployers.retryAttempts,
       unresolvedErrors: scrapeRunEmployers.unresolvedErrors,
       errors: scrapeRunEmployers.errors,
+      durationMs: scrapeRunEmployers.durationMs,
       employerName: employers.name,
       employerKey: employers.key,
     })
@@ -498,6 +502,7 @@ async function getLatestCompletedScrapeResult(): Promise<ScrapeResult | null> {
       retryAttempts: row.retryAttempts,
       unresolvedErrors: row.unresolvedErrors,
       errors: safeParseEmployerErrors(row.errors),
+      durationMs: row.durationMs,
     })),
   };
 }
@@ -526,6 +531,7 @@ async function persistScrapeRunEmployers(
         retryAttempts: summary.retryAttempts,
         unresolvedErrors: summary.unresolvedErrors,
         errors: JSON.stringify(summary.errors),
+        durationMs: summary.durationMs,
       })),
     );
   } catch (err) {

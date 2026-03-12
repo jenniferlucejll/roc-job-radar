@@ -74,6 +74,7 @@ export const scrapeRunEmployers = pgTable('scrape_run_employers', {
   retryAttempts: integer('retry_attempts').notNull().default(0),
   unresolvedErrors: integer('unresolved_errors').notNull().default(0),
   errors: text('errors').notNull().default('[]'),
+  durationMs: integer('duration_ms').notNull().default(0),
   createdAt: timestamp('created_at').notNull().defaultNow(),
 }, (table) => [
   unique('scrape_run_employers_run_id_employer_id_unique').on(table.runId, table.employerId),

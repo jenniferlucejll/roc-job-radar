@@ -16,6 +16,9 @@ COPY packages/backend/ ./packages/backend/
 
 WORKDIR /app/packages/backend
 
+# Build production artifacts so `npm run start` has a valid dist bundle
+RUN npm run build
+
 EXPOSE 3000
 
 CMD ["npm", "run", "start"]
