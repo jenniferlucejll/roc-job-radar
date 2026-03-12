@@ -96,5 +96,5 @@ function isRetryableError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
 
   const message = err.message.toLowerCase();
-  return message.includes('fetch') || message.includes('network') || message.includes('econnrefused') || message.includes('aborted');
+  return message.includes('fetch') || message.includes('network') || message.includes('econnrefused') || message.includes('aborted') || message.includes('terminated');
 }

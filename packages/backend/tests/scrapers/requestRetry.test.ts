@@ -67,4 +67,23 @@ describe('fetchWithRetry', () => {
     await expect(p).rejects.toThrow('status 500');
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it('retries on "terminated" network error and eventually succeeds', async () => {
+    let calls = 0;
+    const fetchMock = vi.fn().mockImplementation(async () => {
+      calls++;
+      if (calls < 3) throw new TypeError('terminated');
+      return { ok: true, json: async () => ({ done: true }) } as unknown as Response;
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await fetchWithRetry('https://example.com', async (res) => (await res.json()) as { done: boolean }, {
+      timeoutMs: 1000,
+      maxAttempts: 3,
+      baseDelayMs: 10,
+    });
+
+    expect(result).toEqual({ done: true });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

@@ -213,27 +213,38 @@ export async function fetchWorkdayJobs(
   while (true) {
     await throttler.waitForNextSlot();
 
-    const data = await fetchWithRetry(
-      wdConfig.apiUrl,
-      async (res) => (await res.json()) as WorkdayResponse,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'User-Agent': userAgent,
+    let data: WorkdayResponse;
+    try {
+      data = await fetchWithRetry(
+        wdConfig.apiUrl,
+        async (res) => (await res.json()) as WorkdayResponse,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'User-Agent': userAgent,
+          },
+          body: JSON.stringify({
+            appliedFacets: {},
+            limit: LIMIT,
+            offset,
+            searchText: '',
+          }),
+          timeoutMs,
+          maxAttempts: maxRetryAttempts,
+          baseDelayMs: retryBaseDelayMs,
+          onAttempt: context?.onRequestAttempt,
         },
-        body: JSON.stringify({
-          appliedFacets: {},
-          limit: LIMIT,
-          offset,
-          searchText: '',
-        }),
-        timeoutMs,
-        maxAttempts: maxRetryAttempts,
-        baseDelayMs: retryBaseDelayMs,
-        onAttempt: context?.onRequestAttempt,
-      },
-    );
+      );
+    } catch (err) {
+      // Pagination failed mid-way — return whatever we collected so far rather
+      // than discarding it entirely. The caller will log the error.
+      if (all.length > 0) {
+        console.warn(`[workday] Pagination error at offset ${offset} (${all.length} jobs collected so far), returning partial results:`, err);
+        return all;
+      }
+      throw err;
+    }
 
     const pageCount = data.jobPostings.length;
     if (Number.isFinite(data.total) && data.total > 0) {
