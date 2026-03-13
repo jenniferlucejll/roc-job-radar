@@ -2,6 +2,14 @@ FROM node:22-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache \
+  chromium \
+  nss \
+  freetype \
+  harfbuzz \
+  ca-certificates \
+  ttf-freefont
+
 # Copy root workspace manifest and lockfile
 COPY package.json package-lock.json ./
 

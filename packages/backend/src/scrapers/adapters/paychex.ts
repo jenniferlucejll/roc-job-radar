@@ -5,13 +5,13 @@
 // Scraping: Jibe JSON API, paginated via `page`; scoped to Rochester, NY via query params
 // Note: each element in jobs[] wraps the actual fields under a "data" key
 // Detail enrichment: normalize discovered iCIMS apply_url values to the public
-// /job endpoint and parse the job view page HTML with Cheerio
-import { load } from 'cheerio';
+// /job endpoint and extract the rendered job page content in a headless browser
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
 import { BaseScraper, ScrapeContext } from '../base.js';
 import { fetchWithRetry } from '../requestRetry.js';
 import { createRequestThrottler } from '../requestThrottle.js';
+import { fetchPaychexRenderedJobDetail } from './paychexRenderedDetail.js';
 
 const JOBS_URL = 'https://careers.paychex.com/api/jobs';
 const TARGET_CITY = 'Rochester';
@@ -108,9 +108,8 @@ export class PaychexScraper extends BaseScraper {
     console.log(`[paychex] Listing complete: ${jobs.length} job${jobs.length !== 1 ? 's' : ''}`);
 
     // -------------------------------------------------------------------------
-    // Detail enrichment: the Jibe listing API's description field is company
-    // boilerplate (identical for every job). Fetch each normalized iCIMS job
-    // view page to get the real job-specific description.
+    // Detail enrichment: the public /job page is a client-rendered shell, so
+    // use a headless browser to extract the rendered job description content.
     // -------------------------------------------------------------------------
     console.log(`[paychex] Enriching details for ${jobs.length} jobs`);
     const detailThrottler = createRequestThrottler(config.scraper.detailIntervalMs);
@@ -118,7 +117,7 @@ export class PaychexScraper extends BaseScraper {
       await detailThrottler.waitForNextSlot();
       console.log(`[paychex] Detail ${i + 1}/${jobs.length} — ${job.url}`);
       try {
-        const detail = await fetchPaychexJobDetail(job.url, config.scraper.userAgent, config.scraper.timeoutMs);
+        const detail = await fetchPaychexRenderedJobDetail(job.url, config.scraper.userAgent, config.scraper.timeoutMs);
         if (detail.descriptionHtml) job.descriptionHtml = detail.descriptionHtml;
       } catch (err) {
         console.warn(`[paychex] Detail fetch failed for ${job.url} — skipping:`, err);
@@ -128,38 +127,6 @@ export class PaychexScraper extends BaseScraper {
     console.log(`[paychex] Detail enrichment complete`);
     return jobs;
   }
-}
-
-async function fetchPaychexJobDetail(
-  applyUrl: string,
-  userAgent: string,
-  timeoutMs: number,
-): Promise<Partial<ScrapedJob>> {
-  const viewUrl = normalizePaychexIcimsUrl(applyUrl);
-  const resp = await fetch(viewUrl, {
-    method: 'GET',
-    headers: {
-      'User-Agent': userAgent,
-      'Accept': 'text/html,application/xhtml+xml',
-    },
-    signal: AbortSignal.timeout(timeoutMs),
-  });
-
-  if (!resp.ok) {
-    throw new Error(`Paychex detail request failed: HTTP ${resp.status}`);
-  }
-
-  const html = await resp.text();
-  const $ = load(html);
-
-  const result: Partial<ScrapedJob> = {};
-
-  // iCIMS job detail pages embed the description in .iCIMS_InfoMsg_Job or #iCIMS_Content_9
-  const descEl = $('.iCIMS_InfoMsg_Job, #iCIMS_Content_9').first();
-  const descHtml = descEl.html()?.trim();
-  if (descHtml) result.descriptionHtml = descHtml;
-
-  return result;
 }
 
 async function fetchPaychexPage(page: number, context?: ScrapeContext): Promise<JibeResponse> {

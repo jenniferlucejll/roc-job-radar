@@ -13,6 +13,10 @@ beforeEach(() => {
   vi.restoreAllMocks();
 });
 
+const { fetchRenderedDetailMock } = vi.hoisted(() => ({
+  fetchRenderedDetailMock: vi.fn(),
+}));
+
 vi.mock('../../../src/config.js', () => ({
   config: {
     scraper: {
@@ -26,6 +30,10 @@ vi.mock('../../../src/config.js', () => ({
   },
 }));
 
+vi.mock('../../../src/scrapers/adapters/paychexRenderedDetail.js', () => ({
+  fetchPaychexRenderedJobDetail: fetchRenderedDetailMock,
+}));
+
 const { paychexScraper } = await import('../../../src/scrapers/adapters/paychex.js');
 
 /**
@@ -35,24 +43,20 @@ const { paychexScraper } = await import('../../../src/scrapers/adapters/paychex.
  */
 function buildFetchMock(options: {
   listingPayload?: unknown;
-  detailHtml?: string;
-  detailError?: boolean;
 }) {
   const listing = options.listingPayload ?? fixture;
   return vi.fn().mockImplementation((url: string) => {
     if ((url as string).includes('careers.paychex.com/api/jobs')) {
       return Promise.resolve({ ok: true, json: async () => listing });
     }
-    // iCIMS detail page request
-    if (options.detailError) {
-      return Promise.resolve({ ok: false, status: 503 });
-    }
-    return Promise.resolve({
-      ok: true,
-      text: async () => options.detailHtml ?? detailHtml,
-    });
+    throw new Error(`Unexpected fetch url in Paychex test: ${url}`);
   });
 }
+
+beforeEach(() => {
+  fetchRenderedDetailMock.mockReset();
+  fetchRenderedDetailMock.mockResolvedValue({ descriptionHtml: detailHtml });
+});
 
 describe('PaychexScraper', () => {
   it('has the correct employerKey', () => {
@@ -72,6 +76,7 @@ describe('PaychexScraper', () => {
     expect(first.url).toBe('https://careers-paychex.icims.com/jobs/R5001/job');
     expect(first.location).toBe('Rochester, NY, United States');
     expect(first.department).toBe('Technology');
+    expect(first.descriptionHtml).toContain('design and build scalable backend services');
     expect(first.remoteStatus).toBe('hybrid');
     expect(first.salaryRaw).toBe('95000');
     expect(first.datePostedAt).toBeInstanceOf(Date);
@@ -108,6 +113,15 @@ describe('PaychexScraper', () => {
     const [first] = await paychexScraper.scrape();
 
     expect(first.url).toBe('https://careers-paychex.icims.com/jobs/R7001/job');
+  });
+
+  it('does not use listing descriptionHtml when rendered extraction returns nothing', async () => {
+    fetchRenderedDetailMock.mockResolvedValue({});
+    vi.stubGlobal('fetch', buildFetchMock({}));
+
+    const [first] = await paychexScraper.scrape();
+
+    expect(first.descriptionHtml).toBeUndefined();
   });
 
   it('maps On-Site tag to remoteStatus onsite', async () => {
@@ -216,8 +230,7 @@ describe('PaychexScraper', () => {
         if (page === '2') return { ok: true, json: async () => page2 };
         return { ok: true, json: async () => ({ jobs: [], totalCount: 3, count: 0 }) };
       }
-      // iCIMS detail pages
-      return { ok: true, text: async () => detailHtml };
+      throw new Error(`Unexpected fetch url in Paychex test: ${String(input)}`);
     });
     vi.stubGlobal('fetch', fetchMock);
 
@@ -242,48 +255,34 @@ describe('PaychexScraper', () => {
   });
 
   describe('detail enrichment', () => {
-    it('populates descriptionHtml from iCIMS job view page', async () => {
-      vi.stubGlobal('fetch', buildFetchMock({}));
+    it('populates descriptionHtml from the rendered job page helper', async () => {
+      const fetchMock = buildFetchMock({});
+      vi.stubGlobal('fetch', fetchMock);
 
       const [first] = await paychexScraper.scrape();
 
       expect(first.descriptionHtml).toContain('design and build scalable backend services');
+      expect(fetchRenderedDetailMock).toHaveBeenCalled();
     });
 
-    it('requests the iCIMS view URL (/job) not the apply URL (/login)', async () => {
+    it('passes normalized /job URLs to the rendered detail helper', async () => {
       const fetchMock = buildFetchMock({});
       vi.stubGlobal('fetch', fetchMock);
 
       await paychexScraper.scrape();
 
-      const detailCalls = fetchMock.mock.calls.filter(([url]) =>
-        (url as string).includes('icims.com'),
-      );
-      expect(detailCalls.length).toBeGreaterThan(0);
-      for (const [url] of detailCalls) {
+      expect(fetchRenderedDetailMock).toHaveBeenCalled();
+      for (const [url] of fetchRenderedDetailMock.mock.calls) {
         expect(url as string).toMatch(/\/job$/);
         expect(url as string).not.toMatch(/\/login$/);
       }
     });
 
     it('continues enriching remaining jobs when one detail fetch fails', async () => {
-      let listingCallCount = 0;
-      let detailCallCount = 0;
-      const fetchMock = vi.fn().mockImplementation((url: string) => {
-        if ((url as string).includes('careers.paychex.com/api/jobs')) {
-          listingCallCount++;
-          return Promise.resolve({
-            ok: true,
-            json: async () => (listingCallCount === 1 ? fixture : { jobs: [], totalCount: 2, count: 0 }),
-          });
-        }
-        detailCallCount++;
-        if (detailCallCount === 1) {
-          return Promise.resolve({ ok: false, status: 503 });
-        }
-        return Promise.resolve({ ok: true, text: async () => detailHtml });
-      });
-      vi.stubGlobal('fetch', fetchMock);
+      fetchRenderedDetailMock
+        .mockRejectedValueOnce(new Error('render failed'))
+        .mockResolvedValueOnce({ descriptionHtml: detailHtml });
+      vi.stubGlobal('fetch', buildFetchMock({}));
 
       const jobs = await paychexScraper.scrape();
 
@@ -293,7 +292,8 @@ describe('PaychexScraper', () => {
     });
 
     it('returns jobs without descriptionHtml when all detail fetches fail', async () => {
-      vi.stubGlobal('fetch', buildFetchMock({ detailError: true }));
+      fetchRenderedDetailMock.mockRejectedValue(new Error('render failed'));
+      vi.stubGlobal('fetch', buildFetchMock({}));
 
       const jobs = await paychexScraper.scrape();
 

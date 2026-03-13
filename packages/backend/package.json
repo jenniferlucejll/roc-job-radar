@@ -18,12 +18,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@roc-job-radar/ai-agent": "file:../ai-agent",
     "cheerio": "^1.0.0",
     "drizzle-orm": "^0.36.4",
     "express": "^4.21.2",
     "express-rate-limit": "^8.3.1",
     "node-cron": "^3.0.3",
-    "@roc-job-radar/ai-agent": "file:../ai-agent",
+    "playwright-core": "^1.58.2",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
