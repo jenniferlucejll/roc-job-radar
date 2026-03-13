@@ -4,7 +4,8 @@
 // externalId: req_id field (iCIMS requisition ID, e.g. "40371")
 // Scraping: Jibe JSON API, paginated via `page`; scoped to Rochester, NY via query params
 // Note: each element in jobs[] wraps the actual fields under a "data" key
-// Detail enrichment: iCIMS job view page (apply_url with /login → /job) parsed with Cheerio
+// Detail enrichment: normalize discovered iCIMS apply_url values to the public
+// /job endpoint and parse the job view page HTML with Cheerio
 import { load } from 'cheerio';
 import { config } from '../../config.js';
 import type { ScrapedJob } from '../../types/index.js';
@@ -47,6 +48,10 @@ function toRemoteStatus(tags: string[] | undefined): ScrapedJob['remoteStatus'] 
   return undefined;
 }
 
+function normalizePaychexIcimsUrl(url: string): string {
+  return url.replace(/\/login$/, '/job');
+}
+
 export class PaychexScraper extends BaseScraper {
   readonly employerKey = 'paychex';
 
@@ -67,7 +72,7 @@ export class PaychexScraper extends BaseScraper {
         byId.set(j.req_id, {
           externalId: j.req_id,
           title: j.title,
-          url: j.apply_url,
+          url: normalizePaychexIcimsUrl(j.apply_url),
           location: j.full_location || undefined,
           department: j.department || undefined,
           remoteStatus: toRemoteStatus(j.tags3),
@@ -104,8 +109,8 @@ export class PaychexScraper extends BaseScraper {
 
     // -------------------------------------------------------------------------
     // Detail enrichment: the Jibe listing API's description field is company
-    // boilerplate (identical for every job). Fetch each iCIMS job view page
-    // (/login → /job) to get the real job-specific description.
+    // boilerplate (identical for every job). Fetch each normalized iCIMS job
+    // view page to get the real job-specific description.
     // -------------------------------------------------------------------------
     console.log(`[paychex] Enriching details for ${jobs.length} jobs`);
     const detailThrottler = createRequestThrottler(config.scraper.detailIntervalMs);
@@ -130,7 +135,7 @@ async function fetchPaychexJobDetail(
   userAgent: string,
   timeoutMs: number,
 ): Promise<Partial<ScrapedJob>> {
-  const viewUrl = applyUrl.replace(/\/login$/, '/job');
+  const viewUrl = normalizePaychexIcimsUrl(applyUrl);
   const resp = await fetch(viewUrl, {
     method: 'GET',
     headers: {

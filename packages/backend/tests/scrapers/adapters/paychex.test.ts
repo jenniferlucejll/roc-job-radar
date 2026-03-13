@@ -69,12 +69,45 @@ describe('PaychexScraper', () => {
     const [first] = jobs;
     expect(first.externalId).toBe('R5001');
     expect(first.title).toBe('Software Engineer');
-    expect(first.url).toBe('https://careers-paychex.icims.com/jobs/R5001/login');
+    expect(first.url).toBe('https://careers-paychex.icims.com/jobs/R5001/job');
     expect(first.location).toBe('Rochester, NY, United States');
     expect(first.department).toBe('Technology');
     expect(first.remoteStatus).toBe('hybrid');
     expect(first.salaryRaw).toBe('95000');
     expect(first.datePostedAt).toBeInstanceOf(Date);
+  });
+
+  it('normalizes discovered iCIMS apply URLs to the public /job endpoint', async () => {
+    vi.stubGlobal('fetch', buildFetchMock({}));
+
+    const jobs = await paychexScraper.scrape();
+
+    expect(jobs.map((job) => job.url)).toEqual([
+      'https://careers-paychex.icims.com/jobs/R5001/job',
+      'https://careers-paychex.icims.com/jobs/R5002/job',
+    ]);
+  });
+
+  it('leaves already-normalized /job URLs unchanged', async () => {
+    const listingPayload = {
+      jobs: [
+        {
+          data: {
+            req_id: 'R7001',
+            title: 'Senior Engineer',
+            apply_url: 'https://careers-paychex.icims.com/jobs/R7001/job',
+            full_location: 'Rochester, NY, United States',
+          },
+        },
+      ],
+      totalCount: 1,
+      count: 1,
+    };
+    vi.stubGlobal('fetch', buildFetchMock({ listingPayload }));
+
+    const [first] = await paychexScraper.scrape();
+
+    expect(first.url).toBe('https://careers-paychex.icims.com/jobs/R7001/job');
   });
 
   it('maps On-Site tag to remoteStatus onsite', async () => {
