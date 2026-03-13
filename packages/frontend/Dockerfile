@@ -1,5 +1,5 @@
-# Stage 1: build the React app
-FROM node:22-alpine AS builder
+# Dev stage: run the Vite server inside Docker with mounted source
+FROM node:22-alpine AS dev
 
 WORKDIR /app
 
@@ -11,6 +11,13 @@ COPY packages/frontend/package.json ./packages/frontend/
 
 # Install frontend workspace deps (locked)
 RUN npm ci --workspace=packages/frontend
+
+WORKDIR /app/packages/frontend
+
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+
+# Stage 1: build the React app
+FROM dev AS builder
 
 # Copy frontend source
 COPY packages/frontend/ ./packages/frontend/

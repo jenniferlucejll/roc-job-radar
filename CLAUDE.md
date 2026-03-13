@@ -84,10 +84,14 @@ cron / POST /api/scrape
 
 ### Start development environment
 ```bash
-docker compose up          # starts postgres + backend with hot reload
+docker compose up          # starts postgres, backend, and frontend
 ```
 
-### Start frontend dev server (in a separate terminal)
+- Backend hot reload runs in Docker on port `3000`.
+- Frontend runs as a Dockerized Vite dev server with hot reload on port `3001`.
+- After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
+
+### Start frontend dev server without Docker (optional)
 ```bash
 cd packages/frontend
 npm run dev                # Vite on port 5173, proxies /api → localhost:3000
@@ -277,6 +281,7 @@ Key env vars:
 - `SCRAPE_DETAIL_INTERVAL_MS` — delay between Workday detail fetches for enrichment (default: 3000ms)
 - `USER_AGENT` — sent with all HTTP requests to employer sites
 - `SCRAPE_TIMEOUT_MS` — per-request timeout
+- `AI_ENABLED`, `AI_MAX_PARALLELISM`, and related AI settings are local `.env.development` values and are not committed repo defaults
 
 ---
 

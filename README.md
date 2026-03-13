@@ -48,6 +48,11 @@ curl http://localhost:3000/health
 http://localhost:3001
 ```
 
+Notes:
+- The Docker `frontend` service runs the Vite dev server on port `3001` with hot reload.
+- After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
+- The backend remains available on `http://localhost:3000`.
+
 ## Runtime Modes
 
 - Local non-container backend bind: `SERVER_HOST=127.0.0.1`
@@ -76,6 +81,9 @@ curl -X POST http://localhost:3000/api/scrape
 From repo root:
 
 ```bash
+# dockerized frontend dev server with hot reload on port 3001
+docker compose up -d frontend
+
 # backend dev server (without Docker)
 npm --workspace @roc-job-radar/backend run dev
 
@@ -145,6 +153,10 @@ docker compose exec ollama ollama pull gemma3
 ```
 
 Set `AI_ENABLED=true` only when you want ingestion to call Ollama (off by default).
+
+Important:
+- AI settings such as `AI_ENABLED` and `AI_MAX_PARALLELISM` are read from local `.env.development`.
+- `.env.development` is gitignored, so those values are developer-local and not part of the repo's committed defaults.
 
 ## Current Scope / Non-goals
 
