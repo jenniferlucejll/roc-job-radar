@@ -154,6 +154,10 @@ Never hand-delete or hand-edit migration metadata on shared/production databases
 curl -X POST http://localhost:3000/api/scrape
 ```
 
+Agent policy:
+- Agents must never trigger `POST /api/scrape`, run scrape seed/backfill scripts, or start employer scrapes in dev/prod unless the user explicitly asks for that action in the current turn.
+- Scrape status may be inspected when needed, but write actions that start a scrape always require explicit user instruction.
+
 ### Run tests
 ```bash
 cd packages/backend
@@ -238,6 +242,7 @@ Authorship should remain the git user configured in the repository.
 - **Each employer adapter is self-contained.** All knowledge about a specific employer's site lives in its adapter file. Include a header comment documenting the ATS type, career URL, and `externalId` strategy used.
 - **Errors in scrapers are caught and logged, never thrown up to the pipeline.** The pipeline continues on per-employer failure.
 - **robots.txt must be checked before every adapter run.** Never bypass this.
+- **Agents must not trigger scrapes unless explicitly asked.** Do not call `POST /api/scrape`, run scrape backfills, or otherwise start scraper execution just to validate code changes.
 - **No auth on the API.** The server binds to localhost. Do not add public-facing auth complexity.
 - **Frontend uses no component library.** Pure Tailwind utility classes only — no Shadcn, MUI, etc.
 - **Frontend analytics utils are pure functions.** Keep `buildCurrentCounts` and `buildMonthlyTrend` in `utils/analytics.ts` and test them separately from the React component.
