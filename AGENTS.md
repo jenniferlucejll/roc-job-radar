@@ -72,6 +72,7 @@ docker compose up          # starts postgres, backend, and frontend
 - Backend hot reload runs in Docker on port `3000`.
 - Frontend runs as a Dockerized Vite dev server with hot reload on port `3001`.
 - After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
+- When `AI_ENABLED=true`, backend startup waits for Ollama and auto-provisions `OLLAMA_MODEL` before the server starts.
 
 ### Backend only (without Docker, for rapid iteration)
 ```bash
@@ -253,6 +254,9 @@ Key env vars:
 - `USER_AGENT` — sent with all HTTP requests to employer sites
 - `SCRAPE_TIMEOUT_MS` — per-request timeout
 - `AI_ENABLED`, `AI_MAX_PARALLELISM`, and related AI settings are local `.env.development` values and are not committed repo defaults
+- `OLLAMA_READY_TIMEOUT_MS` — startup wait budget for Ollama API readiness (default: 60000ms)
+- `OLLAMA_PULL_TIMEOUT_MS` — startup wait budget for model discovery/pull verification (default: 600000ms)
+- `.env.production.example` is the tracked production template; production startup blocks on model readiness when `AI_ENABLED=true`
 
 ---
 

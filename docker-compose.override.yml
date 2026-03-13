@@ -3,7 +3,7 @@ services:
     env_file:
       - .env.development
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
 
   backend:
     env_file:
@@ -11,9 +11,10 @@ services:
     build:
       context: .
       dockerfile: packages/backend/Dockerfile
-    command: npx tsx watch src/index.ts
+    command: >
+      sh -c "npx tsx src/startup/ensureOllama.ts && npx tsx watch src/index.ts"
     ports:
-      - "3000:3000"
+      - "${BACKEND_PORT:-3000}:3000"
     volumes:
       - ./packages/backend/src:/app/packages/backend/src:ro
 
@@ -26,7 +27,7 @@ services:
       VITE_API_BASE_URL: http://backend:3000
       CHOKIDAR_USEPOLLING: "true"
     ports:
-      - "3001:5173"
+      - "${FRONTEND_PORT:-3001}:5173"
     volumes:
       - ./packages/frontend:/app/packages/frontend
       - /app/packages/frontend/node_modules

@@ -1,0 +1,63 @@
+name: Docker Build And Smoke
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  docker-build-and-smoke:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prepare env files for compose validation
+        run: |
+          cp .env.example .env.development
+          cp .env.production.example .env.production
+          sed -i 's|POSTGRES_PASSWORD=<replace-me>|POSTGRES_PASSWORD=changeme|' .env.development .env.production
+          sed -i 's|SERVER_HOST=127.0.0.1|SERVER_HOST=0.0.0.0|' .env.development
+
+      - name: Verify backend tests
+        run: npm --workspace @roc-job-radar/backend test
+
+      - name: Verify frontend tests
+        run: npm --workspace @roc-job-radar/frontend test
+
+      - name: Verify frontend build
+        run: npm --workspace @roc-job-radar/frontend run build
+
+      - name: Validate base compose config
+        run: docker compose config >/dev/null
+
+      - name: Validate dev compose config
+        run: docker compose -f docker-compose.yml -f docker-compose.override.yml config >/dev/null
+
+      - name: Validate production compose config
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config >/dev/null
+
+      - name: Build backend image
+        run: docker build -f packages/backend/Dockerfile .
+
+      - name: Build frontend dev image
+        run: docker build --target dev -f packages/frontend/Dockerfile .
+
+      - name: Build frontend production image
+        run: docker build -f packages/frontend/Dockerfile .
+
+      - name: Run Docker smoke check
+        run: ./scripts/smoke-docker-stack.sh

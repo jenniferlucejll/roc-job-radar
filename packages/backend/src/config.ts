@@ -51,6 +51,8 @@ export const config = Object.freeze({
       enabled: optionalBoolean('AI_ENABLED', false),
       apiUrl: optional('OLLAMA_API_URL', 'http://127.0.0.1:11434/api/chat'),
       model: optional('OLLAMA_MODEL', 'gemma3'),
+      readyTimeoutMs: optionalInt('OLLAMA_READY_TIMEOUT_MS', 60_000),
+      pullTimeoutMs: optionalInt('OLLAMA_PULL_TIMEOUT_MS', 10 * 60_000),
       timeoutMs: optionalInt('AI_REQ_TIMEOUT_MS', 60_000),
       maxInputChars: optionalInt('AI_MAX_CHARS', 12_000),
       requestMaxTokens: optionalInt('AI_REQUEST_MAX_TOKENS', 768),

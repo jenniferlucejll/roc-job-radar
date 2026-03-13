@@ -52,11 +52,27 @@ Notes:
 - The Docker `frontend` service runs the Vite dev server on port `3001` with hot reload.
 - After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
 - The backend remains available on `http://localhost:3000`.
+- If `AI_ENABLED=true`, backend startup waits for Ollama and auto-pulls `OLLAMA_MODEL` when it is missing.
+- The first AI-enabled startup can take several minutes while Ollama downloads the model.
 
 ## Runtime Modes
 
 - Local non-container backend bind: `SERVER_HOST=127.0.0.1`
 - Containerized backend bind: `SERVER_HOST=0.0.0.0` (controlled by Docker/network boundaries)
+
+## Production Compose
+
+Use the production compose overlay with a dedicated production env file:
+
+```bash
+cp .env.production.example .env.production
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+```
+
+Production behavior:
+- Frontend serves the built static app through nginx on port `3001`.
+- Backend runs the Ollama readiness helper, then migrations, then starts the compiled server.
+- When `AI_ENABLED=true`, startup blocks until `OLLAMA_MODEL` is available.
 
 ## API Summary
 
@@ -145,18 +161,16 @@ psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrap
   - `ai_normalized_at`
   - `ai_warnings`
 
-Ollama compose service and helper:
-
-```bash
-docker compose up
-docker compose exec ollama ollama pull gemma3
-```
-
 Set `AI_ENABLED=true` only when you want ingestion to call Ollama (off by default).
 
 Important:
 - AI settings such as `AI_ENABLED` and `AI_MAX_PARALLELISM` are read from local `.env.development`.
 - `.env.development` is gitignored, so those values are developer-local and not part of the repo's committed defaults.
+- `.env.production.example` provides the tracked production template for the same AI settings.
+- `OLLAMA_MODEL` is the single source of truth for which model startup provisions.
+- `OLLAMA_READY_TIMEOUT_MS` controls how long startup waits for the Ollama API to become reachable.
+- `OLLAMA_PULL_TIMEOUT_MS` controls how long startup allows model discovery/pull verification to take.
+- When `AI_ENABLED=false`, backend startup skips all Ollama readiness checks.
 
 ## Current Scope / Non-goals
 

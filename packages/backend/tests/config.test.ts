@@ -14,6 +14,8 @@ beforeEach(() => {
   for (const key of [
     'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
     'PORT', 'SERVER_HOST', 'NODE_ENV', 'SCRAPE_CRON', 'SCRAPE_TIMEOUT_MS', 'SCRAPE_MAX_RETRY_ATTEMPTS', 'SCRAPE_RETRY_BASE_DELAY_MS', 'SCRAPE_REQUEST_INTERVAL_MS', 'SCRAPE_DETAIL_INTERVAL_MS', 'USER_AGENT',
+    'AI_ENABLED', 'OLLAMA_API_URL', 'OLLAMA_MODEL', 'OLLAMA_READY_TIMEOUT_MS', 'OLLAMA_PULL_TIMEOUT_MS', 'AI_REQ_TIMEOUT_MS',
+    'AI_MAX_CHARS', 'AI_REQUEST_MAX_TOKENS', 'AI_MAX_PARALLELISM', 'AI_MAX_RETRIES', 'AI_RETRY_BASE_DELAY_MS',
   ]) {
     delete process.env[key];
   }
@@ -53,6 +55,11 @@ describe('config', () => {
     expect(config.scraper.retryBaseDelayMs).toBe(1_000);
     expect(config.scraper.requestIntervalMs).toBe(1_000);
     expect(config.scraper.detailIntervalMs).toBe(3_000);
+    expect(config.scraper.userAgent).toBe('roc-job-radar/1.0 (personal job monitoring tool)');
+    expect(config.scraper.ai.enabled).toBe(false);
+    expect(config.scraper.ai.model).toBe('gemma3');
+    expect(config.scraper.ai.readyTimeoutMs).toBe(60_000);
+    expect(config.scraper.ai.pullTimeoutMs).toBe(600_000);
   });
 
   it('reads overridden values from env', async () => {
@@ -67,6 +74,12 @@ describe('config', () => {
       SCRAPE_RETRY_BASE_DELAY_MS: '250',
       SCRAPE_REQUEST_INTERVAL_MS: '2500',
       USER_AGENT: 'custom-agent',
+      AI_ENABLED: 'true',
+      OLLAMA_API_URL: 'http://ollama:11434/api/chat',
+      OLLAMA_MODEL: 'llama3.2',
+      OLLAMA_READY_TIMEOUT_MS: '123000',
+      OLLAMA_PULL_TIMEOUT_MS: '456000',
+      AI_MAX_PARALLELISM: '1',
     });
     const config = await loadConfig();
 
@@ -79,6 +92,12 @@ describe('config', () => {
     expect(config.scraper.retryBaseDelayMs).toBe(250);
     expect(config.scraper.requestIntervalMs).toBe(2_500);
     expect(config.scraper.userAgent).toBe('custom-agent');
+    expect(config.scraper.ai.enabled).toBe(true);
+    expect(config.scraper.ai.apiUrl).toBe('http://ollama:11434/api/chat');
+    expect(config.scraper.ai.model).toBe('llama3.2');
+    expect(config.scraper.ai.readyTimeoutMs).toBe(123_000);
+    expect(config.scraper.ai.pullTimeoutMs).toBe(456_000);
+    expect(config.scraper.ai.maxParallelism).toBe(1);
   });
 
   it('throws when an integer env var is not a number', async () => {
