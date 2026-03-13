@@ -6,5 +6,8 @@
     "packages/backend",
     "packages/frontend",
     "packages/ai-agent"
-  ]
+  ],
+  "scripts": {
+    "logs:backend": "bash scripts/backend-logs.sh"
+  }
 }
