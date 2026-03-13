@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchEmployers, fetchJobs, fetchScrapeStatus, triggerScrape } from '../api/client.js'
+import { fetchEmployers, fetchJobs, fetchScrapeStatus, triggerScrape, triggerTestScrape } from '../api/client.js'
 import type { Employer, ScrapeEmployerSummary, ScrapeRunSummary, ScrapeStatusResponse } from '../types/index.js'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -32,6 +32,18 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[status] ?? 'bg-gray-100 text-gray-600'}`}>
       {status.replace('_', ' ')}
+    </span>
+  )
+}
+
+function RunTypeBadge({ runType }: { runType: ScrapeRunSummary['runType'] }) {
+  const classes = runType === 'test'
+    ? 'bg-amber-100 text-amber-700'
+    : 'bg-slate-100 text-slate-600'
+
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${classes}`}>
+      {runType}
     </span>
   )
 }
@@ -91,6 +103,7 @@ export function AdminPage() {
   const [jobStats, setJobStats] = useState<{ active: number; newThisWeek: number; removed: number } | null>(null)
   const [triggering, setTriggering] = useState(false)
   const [triggeringEmployer, setTriggeringEmployer] = useState<string | null>(null)
+  const [testingEmployer, setTestingEmployer] = useState<string | null>(null)
   const wasRunning = useRef(false)
 
   const refreshStatus = useCallback(() => {
@@ -146,8 +159,20 @@ export function AdminPage() {
     }
   }
 
+  async function handleTestScrapeEmployer(key: string) {
+    setTestingEmployer(key)
+    try {
+      await triggerTestScrape(key)
+      refreshStatus()
+    } finally {
+      setTestingEmployer(null)
+    }
+  }
+
   const running = scrapeStatus?.running ?? false
   const last = scrapeStatus?.lastResult
+  const normalRuns = scrapeStatus?.recentRuns.filter((run) => run.runType === 'normal') ?? []
+  const testRuns = scrapeStatus?.recentRuns.filter((run) => run.runType === 'test') ?? []
 
   return (
     <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
@@ -210,7 +235,7 @@ export function AdminPage() {
 
         {/* Recent Runs */}
         <SectionCard title="Recent Scrape Runs">
-          {!scrapeStatus || scrapeStatus.recentRuns.length === 0 ? (
+          {normalRuns.length === 0 ? (
             <p className="text-sm text-gray-400">No runs yet.</p>
           ) : (
             <div className="overflow-x-auto">
@@ -228,9 +253,60 @@ export function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {scrapeStatus.recentRuns.map((run: ScrapeRunSummary) => (
+                  {normalRuns.map((run: ScrapeRunSummary) => (
                     <tr key={run.runId} className="border-b border-gray-50 hover:bg-gray-50">
-                      <td className="py-2 pr-4"><StatusBadge status={run.status} /></td>
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={run.status} />
+                          <RunTypeBadge runType={run.runType} />
+                        </div>
+                      </td>
+                      <td className="py-2 pr-4 text-gray-600">{formatDateTime(run.startedAt)}</td>
+                      <td className="py-2 pr-4 text-gray-500">{formatDuration(run.durationMs)}</td>
+                      <td className="py-2 pr-4 text-gray-600">{run.employersRun}</td>
+                      <td className="py-2 pr-4 text-green-600">+{run.jobsInserted}</td>
+                      <td className="py-2 pr-4 text-gray-600">{run.jobsUpdated}</td>
+                      <td className="py-2 pr-4 text-red-500">-{run.jobsRemoved}</td>
+                      <td className="py-2">
+                        {run.errors > 0
+                          ? <span className="text-red-500">{run.errors}</span>
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Recent Test Scrapes">
+          {testRuns.length === 0 ? (
+            <p className="text-sm text-gray-400">No test scrapes yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-gray-400 border-b border-gray-100">
+                    <th className="pb-2 pr-4 font-medium">Status</th>
+                    <th className="pb-2 pr-4 font-medium">Started</th>
+                    <th className="pb-2 pr-4 font-medium">Duration</th>
+                    <th className="pb-2 pr-4 font-medium">Employers</th>
+                    <th className="pb-2 pr-4 font-medium">Inserted</th>
+                    <th className="pb-2 pr-4 font-medium">Updated</th>
+                    <th className="pb-2 pr-4 font-medium">Removed</th>
+                    <th className="pb-2 font-medium">Errors</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {testRuns.map((run: ScrapeRunSummary) => (
+                    <tr key={run.runId} className="border-b border-gray-50 hover:bg-gray-50">
+                      <td className="py-2 pr-4">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={run.status} />
+                          <RunTypeBadge runType={run.runType} />
+                        </div>
+                      </td>
                       <td className="py-2 pr-4 text-gray-600">{formatDateTime(run.startedAt)}</td>
                       <td className="py-2 pr-4 text-gray-500">{formatDuration(run.durationMs)}</td>
                       <td className="py-2 pr-4 text-gray-600">{run.employersRun}</td>
@@ -293,13 +369,22 @@ export function AdminPage() {
                       </a>
                     </td>
                     <td className="py-2 pl-3">
-                      <button
-                        onClick={() => handleScrapeEmployer(emp.key)}
-                        disabled={running || triggeringEmployer === emp.key || !emp.active}
-                        className="px-3 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                      >
-                        {triggeringEmployer === emp.key ? 'Starting…' : 'Scrape'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleScrapeEmployer(emp.key)}
+                          disabled={running || triggeringEmployer === emp.key || testingEmployer === emp.key || !emp.active}
+                          className="px-3 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {triggeringEmployer === emp.key ? 'Starting…' : 'Scrape'}
+                        </button>
+                        <button
+                          onClick={() => handleTestScrapeEmployer(emp.key)}
+                          disabled={running || triggeringEmployer === emp.key || testingEmployer === emp.key || !emp.active}
+                          className="px-3 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          {testingEmployer === emp.key ? 'Starting…' : 'Test Scrape (3)'}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}

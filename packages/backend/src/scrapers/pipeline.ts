@@ -23,6 +23,7 @@ import type {
   ScrapeRunSummary,
   ScrapeResult,
   ScrapeErrorDetail,
+  ScrapeRunType,
 } from '../types/index.js';
 import type { BaseScraper } from './base.js';
 import { checkRobots } from './robots.js';
@@ -54,6 +55,7 @@ registerAdapter(wegmansScraper);
 
 interface ScrapeState {
   currentRunId: string | null;
+  currentRunType: ScrapeRunType | null;
   running: boolean;
   lastResult: ScrapeResult | null;
   lastStartedAt: Date | null;
@@ -61,12 +63,26 @@ interface ScrapeState {
 
 const state: ScrapeState = {
   currentRunId: null,
+  currentRunType: null,
   running: false,
   lastResult: null,
   lastStartedAt: null,
 };
 
 const DEFAULT_STATUS_RECENT_RUNS = 10;
+const TEST_SCRAPE_MAX_JOBS = 3;
+
+interface TriggerPipelineOptions {
+  employerKey?: string;
+  runType: ScrapeRunType;
+  maxJobs?: number;
+  persistenceMode: 'full_reconcile' | 'upsert_only';
+  applyLocationFilter: boolean;
+}
+
+interface PersistJobsOptions {
+  removalMode: 'full_reconcile' | 'upsert_only';
+}
 
 /**
  * Call once at startup to mark any leftover 'running' records as 'failed'.
@@ -114,6 +130,25 @@ export async function getScrapeStatus(limit = DEFAULT_STATUS_RECENT_RUNS): Promi
 let runSequence = 0;
 
 export async function triggerPipeline(employerKey?: string): Promise<string | null> {
+  return triggerPipelineWithOptions({
+    employerKey,
+    runType: 'normal',
+    persistenceMode: 'full_reconcile',
+    applyLocationFilter: true,
+  });
+}
+
+export async function triggerTestPipeline(employerKey: string): Promise<string | null> {
+  return triggerPipelineWithOptions({
+    employerKey,
+    runType: 'test',
+    maxJobs: TEST_SCRAPE_MAX_JOBS,
+    persistenceMode: 'upsert_only',
+    applyLocationFilter: false,
+  });
+}
+
+async function triggerPipelineWithOptions(options: TriggerPipelineOptions): Promise<string | null> {
   if (state.running) return null;
 
   // Guard against post-restart duplicates: check DB for an in-flight run
@@ -122,12 +157,15 @@ export async function triggerPipeline(employerKey?: string): Promise<string | nu
 
   state.running = true;
   state.currentRunId = `scrape-${Date.now()}-${++runSequence}`;
+  state.currentRunType = options.runType;
   state.lastStartedAt = new Date();
   const runId = state.currentRunId;
 
-  runPipeline(runId, employerKey)
+  runPipeline(runId, options)
     .then((result) => {
-      state.lastResult = result;
+      if (result.runType === 'normal') {
+        state.lastResult = result;
+      }
     })
     .catch((err: unknown) => {
       console.error('Pipeline failed unexpectedly:', err);
@@ -135,16 +173,23 @@ export async function triggerPipeline(employerKey?: string): Promise<string | nu
     .finally(() => {
       state.running = false;
       state.currentRunId = null;
+      state.currentRunType = null;
     });
 
   return runId;
+}
+
+export async function runPipelineForTesting(
+  options: TriggerPipelineOptions & { runId?: string },
+): Promise<ScrapeResult> {
+  return runPipeline(options.runId ?? `test-${Date.now()}`, options);
 }
 
 // ---------------------------------------------------------------------------
 // Pipeline internals
 // ---------------------------------------------------------------------------
 
-async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeResult> {
+async function runPipeline(runId: string, options: TriggerPipelineOptions): Promise<ScrapeResult> {
   const startedAt = new Date();
   let employersRun = 0;
   let jobsInserted = 0;
@@ -155,21 +200,23 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
   let retryAttempts = 0;
   const employerSummaries: ScrapeEmployerSummary[] = [];
 
-  await deactivateDisabledEmployers();
+  if (options.runType === 'normal') {
+    await deactivateDisabledEmployers();
+  }
 
   const activeEmployers = await db
     .select()
     .from(employers)
     .where(eq(employers.active, true));
 
-  const employersToRun = employerKey
-    ? activeEmployers.filter((e) => e.key === employerKey)
+  const employersToRun = options.employerKey
+    ? activeEmployers.filter((e) => e.key === options.employerKey)
     : activeEmployers;
 
   const employerNames = employersToRun.map((e) => e.name).join(', ');
-  console.log(`[pipeline] Run ${runId} started — ${employersToRun.length} employer${employersToRun.length !== 1 ? 's' : ''}: ${employerNames}`);
+  console.log(`[pipeline] ${options.runType} run ${runId} started — ${employersToRun.length} employer${employersToRun.length !== 1 ? 's' : ''}: ${employerNames}`);
 
-  await startScrapeRunRecord(runId, startedAt);
+  await startScrapeRunRecord(runId, options.runType, startedAt);
 
   const employerIds = employersToRun.map((employer) => employer.id);
 
@@ -256,12 +303,17 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
         const scraped = await adapter.scrape({
           onRequestAttempt,
         });
-        employerSummary.jobsScraped = scraped.length;
+        const sampled = options.maxJobs !== undefined ? scraped.slice(0, options.maxJobs) : scraped;
+        employerSummary.jobsScraped = sampled.length;
 
-        const filtered = scraped.filter((job) => isInGreaterRochester(job.location));
+        const filtered = options.applyLocationFilter
+          ? sampled.filter((job) => isInGreaterRochester(job.location))
+          : sampled;
         employerSummary.jobsFiltered = filtered.length;
 
-        const counts = await persistJobs(employer.id, filtered);
+        const counts = await persistJobs(employer.id, filtered, {
+          removalMode: options.persistenceMode,
+        });
         jobsInserted += counts.inserted;
         jobsUpdated += counts.updated;
         jobsRemoved += counts.removed;
@@ -312,6 +364,7 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
     const durationMs = finishedAt.getTime() - startedAt.getTime();
     const result: ScrapeResult = {
       runId,
+      runType: options.runType,
       startedAt,
       finishedAt,
       durationMs,
@@ -348,6 +401,7 @@ async function runPipeline(runId: string, employerKey?: string): Promise<ScrapeR
 
     const result: ScrapeResult = {
       runId,
+      runType: options.runType,
       startedAt,
       finishedAt,
       durationMs,
@@ -382,12 +436,13 @@ async function deactivateDisabledEmployers(): Promise<void> {
   }
 }
 
-async function startScrapeRunRecord(runId: string, startedAt: Date): Promise<void> {
+async function startScrapeRunRecord(runId: string, runType: ScrapeRunType, startedAt: Date): Promise<void> {
   await clearRunningScrapeRuns(startedAt);
 
   try {
     await db.insert(scrapeRuns).values({
       runId,
+      runType,
       status: 'running',
       startedAt,
       finishedAt: startedAt,
@@ -403,6 +458,7 @@ async function finalizeScrapeRun(result: ScrapeResult): Promise<void> {
     await db
       .update(scrapeRuns)
       .set({
+        runType: result.runType,
         status: result.status,
         employersRun: result.employersRun,
         jobsInserted: result.jobsInserted,
@@ -435,6 +491,7 @@ async function getRecentScrapeRuns(limit = 10): Promise<ScrapeRunSummary[]> {
   const rows = await db
     .select({
       runId: scrapeRuns.runId,
+      runType: scrapeRuns.runType,
       status: scrapeRuns.status,
       startedAt: scrapeRuns.startedAt,
       finishedAt: scrapeRuns.finishedAt,
@@ -454,6 +511,7 @@ async function getRecentScrapeRuns(limit = 10): Promise<ScrapeRunSummary[]> {
 
   return rows.map((row) => ({
     runId: row.runId,
+    runType: row.runType as ScrapeRunType,
     status: row.status as 'running' | 'success' | 'partial_error' | 'failed',
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
@@ -473,6 +531,7 @@ async function getLatestCompletedScrapeResult(): Promise<ScrapeResult | null> {
   const [run] = await db
     .select({
       runId: scrapeRuns.runId,
+      runType: scrapeRuns.runType,
       status: scrapeRuns.status,
       startedAt: scrapeRuns.startedAt,
       finishedAt: scrapeRuns.finishedAt,
@@ -487,7 +546,10 @@ async function getLatestCompletedScrapeResult(): Promise<ScrapeResult | null> {
       openErrors: scrapeRuns.openErrors,
     })
     .from(scrapeRuns)
-    .where(inArray(scrapeRuns.status, ['success', 'partial_error', 'failed']))
+    .where(and(
+      inArray(scrapeRuns.status, ['success', 'partial_error', 'failed']),
+      eq(scrapeRuns.runType, 'normal'),
+    ))
     .orderBy(desc(scrapeRuns.finishedAt), desc(scrapeRuns.id))
     .limit(1);
 
@@ -519,6 +581,7 @@ async function getLatestCompletedScrapeResult(): Promise<ScrapeResult | null> {
 
   return {
     runId: run.runId,
+    runType: run.runType as ScrapeRunType,
     status: run.status as 'success' | 'partial_error' | 'failed',
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
@@ -639,6 +702,7 @@ async function getOpenErrorCountsByEmployer(employerIds: number[]): Promise<Map<
 async function persistJobs(
   employerId: number,
   scrapedJobs: Awaited<ReturnType<BaseScraper['scrape']>>,
+  options: PersistJobsOptions,
 ): Promise<{ inserted: number; updated: number; removed: number; errors: ScrapeError[] }> {
   const now = new Date();
   let inserted = 0;
@@ -776,10 +840,12 @@ async function persistJobs(
     }
   }
 
-  for (const ex of existing) {
-    if (ex.removedAt === null && !seenIds.has(ex.id) && !scrapedExtIds.has(ex.externalId)) {
-      await db.update(jobs).set({ removedAt: now }).where(eq(jobs.id, ex.id));
-      removed++;
+  if (options.removalMode === 'full_reconcile') {
+    for (const ex of existing) {
+      if (ex.removedAt === null && !seenIds.has(ex.id) && !scrapedExtIds.has(ex.externalId)) {
+        await db.update(jobs).set({ removedAt: now }).where(eq(jobs.id, ex.id));
+        removed++;
+      }
     }
   }
 

@@ -1,14 +1,34 @@
-import { Router } from 'express';
-import { triggerPipeline, getScrapeStatus } from '../../scrapers/pipeline.js';
+import { Router, type Response } from 'express';
+import { triggerPipeline, triggerTestPipeline, getScrapeStatus } from '../../scrapers/pipeline.js';
 
 export const scrapeRouter = Router();
 
+function parseEmployerKey(body: Record<string, unknown> | undefined): string | undefined | null {
+  const employerKey = body?.employerKey;
+  if (employerKey === undefined) {
+    return undefined;
+  }
+
+  if (typeof employerKey !== 'string' || employerKey.trim() === '') {
+    return null;
+  }
+
+  return employerKey.trim();
+}
+
+function sendAlreadyRunning(res: Response): void {
+  res.status(409).json({
+    error: 'Scrape already in progress',
+    code: 'SCRAPE_ALREADY_RUNNING',
+    started: false,
+  });
+}
+
 scrapeRouter.post('/', async (req, res, next) => {
   try {
-    const body = req.body as Record<string, unknown> | undefined;
-    const employerKey = body?.employerKey;
+    const employerKey = parseEmployerKey(req.body as Record<string, unknown> | undefined);
 
-    if (employerKey !== undefined && (typeof employerKey !== 'string' || employerKey.trim() === '')) {
+    if (employerKey === null) {
       res.status(400).json({
         error: 'employerKey must be a non-empty string',
         code: 'INVALID_EMPLOYER_KEY',
@@ -16,15 +36,36 @@ scrapeRouter.post('/', async (req, res, next) => {
       return;
     }
 
-    const runId = await triggerPipeline(typeof employerKey === 'string' ? employerKey.trim() : undefined);
+    const runId = await triggerPipeline(employerKey);
     if (!runId) {
-      res.status(409).json({
-        error: 'Scrape already in progress',
-        code: 'SCRAPE_ALREADY_RUNNING',
-        started: false,
+      sendAlreadyRunning(res);
+      return;
+    }
+
+    res.status(202).json({ started: true, runId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+scrapeRouter.post('/test', async (req, res, next) => {
+  try {
+    const employerKey = parseEmployerKey(req.body as Record<string, unknown> | undefined);
+
+    if (employerKey === undefined || employerKey === null) {
+      res.status(400).json({
+        error: 'employerKey must be a non-empty string',
+        code: 'INVALID_EMPLOYER_KEY',
       });
       return;
     }
+
+    const runId = await triggerTestPipeline(employerKey);
+    if (!runId) {
+      sendAlreadyRunning(res);
+      return;
+    }
+
     res.status(202).json({ started: true, runId });
   } catch (err) {
     next(err);

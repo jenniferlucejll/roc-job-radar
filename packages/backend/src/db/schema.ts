@@ -62,6 +62,7 @@ export const scrapeErrors = pgTable('scrape_errors', {
 export const scrapeRuns = pgTable('scrape_runs', {
   id: serial('id').primaryKey(),
   runId: text('run_id').notNull().unique(),
+  runType: text('run_type').notNull().default('normal'),
   status: text('status').notNull().default('success'),
   startedAt: timestamp('started_at').notNull(),
   finishedAt: timestamp('finished_at').notNull(),

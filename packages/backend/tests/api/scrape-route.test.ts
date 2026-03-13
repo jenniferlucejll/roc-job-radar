@@ -3,6 +3,7 @@ import { scrapeRouter } from '../../src/api/routes/scrape.js';
 
 vi.mock('../../src/scrapers/pipeline.js', () => ({
   triggerPipeline: vi.fn(),
+  triggerTestPipeline: vi.fn(),
   getScrapeStatus: vi.fn(async (limit: number) => ({
     running: false,
     runId: `run-${limit}`,
@@ -42,6 +43,19 @@ describe('POST / handler', () => {
     const postLayer = scrapeRouter.stack.find(
       (layer: { route?: { path?: string; stack?: { handle: unknown }[] } }) =>
         layer.route?.path === '/' && layer.route.stack?.[0],
+    );
+    const handler = postLayer!.route!.stack![0].handle;
+    return handler as (
+      req: PostReq,
+      res: { status: (code: number) => { json: (payload: unknown) => unknown }; json: (payload: unknown) => unknown },
+      next: (err?: unknown) => void,
+    ) => Promise<void>;
+  }
+
+  function getTestPostHandler() {
+    const postLayer = scrapeRouter.stack.find(
+      (layer: { route?: { path?: string; stack?: { handle: unknown }[] } }) =>
+        layer.route?.path === '/test' && layer.route.stack?.[0],
     );
     const handler = postLayer!.route!.stack![0].handle;
     return handler as (
@@ -147,6 +161,58 @@ describe('POST / handler', () => {
     expect(res.json).toHaveBeenCalledWith({
       error: 'employerKey must be a non-empty string',
       code: 'INVALID_EMPLOYER_KEY',
+    });
+  });
+
+  it('calls triggerTestPipeline with employerKey for POST /test', async () => {
+    const pipeline = await import('../../src/scrapers/pipeline.js');
+    const triggerTestPipeline = pipeline.triggerTestPipeline as ReturnType<typeof vi.fn>;
+    triggerTestPipeline.mockResolvedValue('test-run-1');
+
+    const handler = getTestPostHandler();
+    const req: PostReq = { body: { employerKey: 'paychex' } };
+    const { res, statusCode } = makeResponse();
+    const next = vi.fn();
+
+    await handler(req, res, next);
+
+    expect(statusCode()).toBe(202);
+    expect(res.json).toHaveBeenCalledWith({ started: true, runId: 'test-run-1' });
+    expect(triggerTestPipeline).toHaveBeenCalledWith('paychex');
+  });
+
+  it('returns 400 for POST /test when employerKey is missing', async () => {
+    const handler = getTestPostHandler();
+    const req: PostReq = { body: {} };
+    const { res, statusCode } = makeResponse();
+    const next = vi.fn();
+
+    await handler(req, res, next);
+
+    expect(statusCode()).toBe(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'employerKey must be a non-empty string',
+      code: 'INVALID_EMPLOYER_KEY',
+    });
+  });
+
+  it('returns 409 for POST /test when triggerTestPipeline returns null', async () => {
+    const pipeline = await import('../../src/scrapers/pipeline.js');
+    const triggerTestPipeline = pipeline.triggerTestPipeline as ReturnType<typeof vi.fn>;
+    triggerTestPipeline.mockResolvedValue(null);
+
+    const handler = getTestPostHandler();
+    const req: PostReq = { body: { employerKey: 'paychex' } };
+    const { res, statusCode } = makeResponse();
+    const next = vi.fn();
+
+    await handler(req, res, next);
+
+    expect(statusCode()).toBe(409);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Scrape already in progress',
+      code: 'SCRAPE_ALREADY_RUNNING',
+      started: false,
     });
   });
 });

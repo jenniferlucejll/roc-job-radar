@@ -43,9 +43,11 @@ export interface Job {
 }
 
 export type ScrapeRunStatus = 'running' | 'success' | 'partial_error' | 'failed'
+export type ScrapeRunType = 'normal' | 'test'
 
 export interface ScrapeRunSummary {
   runId: string
+  runType: ScrapeRunType
   status: ScrapeRunStatus
   startedAt: string
   finishedAt: string

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fetchEmployers, fetchJobs, fetchJob, fetchScrapeStatus, triggerScrape } from './client.js'
+import { fetchEmployers, fetchJobs, fetchJob, fetchScrapeStatus, triggerScrape, triggerTestScrape } from './client.js'
 
 function mockFetch(body: unknown, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -285,5 +285,41 @@ describe('triggerScrape', () => {
       statusText: 'Internal Server Error',
     }))
     await expect(triggerScrape()).rejects.toThrow('500')
+  })
+})
+
+describe('triggerTestScrape', () => {
+  it('POSTs to /api/scrape/test with JSON body', async () => {
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 202,
+      json: () => Promise.resolve({ started: true, runId: 'test-paychex' }),
+    })
+    vi.stubGlobal('fetch', spy)
+    await triggerTestScrape('paychex')
+    expect(spy).toHaveBeenCalledWith('/api/scrape/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"employerKey":"paychex"}',
+    })
+  })
+
+  it('returns started=false with empty runId on 409', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: () => Promise.resolve({ started: false }),
+    }))
+    const result = await triggerTestScrape('wegmans')
+    expect(result).toEqual({ started: false, runId: '' })
+  })
+
+  it('throws on other non-OK status codes', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+    }))
+    await expect(triggerTestScrape('paychex')).rejects.toThrow('500')
   })
 })

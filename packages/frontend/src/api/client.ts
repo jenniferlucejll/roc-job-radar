@@ -53,3 +53,17 @@ export async function triggerScrape(employerKey?: string): Promise<{ started: bo
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
   return res.json() as Promise<{ started: boolean; runId: string }>
 }
+
+export async function triggerTestScrape(employerKey: string): Promise<{ started: boolean; runId: string }> {
+  const res = await fetch('/api/scrape/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employerKey }),
+  })
+  if (res.status === 409) {
+    const parsed = (await res.json()) as { started: boolean }
+    return { started: parsed.started, runId: '' }
+  }
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json() as Promise<{ started: boolean; runId: string }>
+}

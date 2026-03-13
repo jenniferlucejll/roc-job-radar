@@ -12,9 +12,12 @@ export interface ScrapedJob {
   datePostedAt?: Date;
 }
 
+export type ScrapeRunType = 'normal' | 'test';
+
 /** Summary returned by the scrape pipeline after a full run. */
 export interface ScrapeResult {
   runId: string;
+  runType: ScrapeRunType;
   startedAt: Date;
   finishedAt: Date;
   durationMs: number;
@@ -32,6 +35,7 @@ export interface ScrapeResult {
 
 export interface ScrapeRunSummary {
   runId: string;
+  runType: ScrapeRunType;
   status: ScrapeRunStatus;
   startedAt: Date;
   finishedAt: Date;
