@@ -45,6 +45,8 @@ services:
   backend:
     env_file:
       - ${TEMP_ENV}
+    environment:
+      POSTGRES_PORT: "5432"
 EOF
 
 docker compose \
