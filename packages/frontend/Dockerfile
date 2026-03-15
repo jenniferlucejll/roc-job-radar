@@ -19,8 +19,8 @@ CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
 # Stage 1: build the React app
 FROM dev AS builder
 
-# Copy frontend source
-COPY packages/frontend/ ./packages/frontend/
+# Copy frontend source into the workspace root expected by the build script
+COPY packages/frontend/ ./
 
 WORKDIR /app/packages/frontend
 
