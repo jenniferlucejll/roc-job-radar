@@ -44,6 +44,7 @@ export interface Job {
 
 export type ScrapeRunStatus = 'running' | 'success' | 'partial_error' | 'failed'
 export type ScrapeRunType = 'normal' | 'test'
+export type ScrapeBootstrapState = 'ready' | 'migrating' | 'uninitialized'
 
 export interface ScrapeRunSummary {
   runId: string
@@ -88,6 +89,11 @@ export interface ScrapeStatusResponse {
   lastStartedAt: string | null
   lastResult: ScrapeResult | null
   recentRuns: ScrapeRunSummary[]
+  bootstrapState: ScrapeBootstrapState
+  bootstrapMessage: string | null
+  scheduledScrapingEnabled: boolean
+  schedulerArmed: boolean
+  resetsOnRestart: true
 }
 
 export interface JobFilters {

@@ -17,10 +17,10 @@ Local Rochester job radar: scrape selected employer career sites, persist postin
   - L3Harris
 - Applies Rochester-area location filtering during ingestion
 - Persists job lifecycle (`first_seen_at`, `last_seen_at`, `removed_at`)
-- Runs scheduled scrapes (default configured via `SCRAPE_CRON`)
+- Supports scheduled scrapes when explicitly enabled from the admin page
 - Default schedule value:
   - `SCRAPE_CRON=0 8 * * *` (once daily, from `.env.example`)
-- Supports manual scrape trigger
+- Supports manual scrape trigger even when scheduled scraping is disabled
 - Tracks scrape run history and per-employer metrics (attempts, retries, errors)
 
 ## Quickstart (Docker)
@@ -49,10 +49,12 @@ http://localhost:3001
 ```
 
 Notes:
+- Fresh Docker bootstrap auto-runs backend migrations before the API starts.
 - The Docker `frontend` service runs the Vite dev server on port `3001` with hot reload.
 - After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
 - The backend remains available on `http://localhost:3000`.
-- If `AI_ENABLED=true`, backend startup waits for Ollama and auto-pulls `OLLAMA_MODEL` when it is missing.
+- Scheduled scraping starts disabled on every backend boot and must be enabled from the admin page.
+- If `AI_ENABLED=true`, backend startup remains non-blocking. The server starts immediately and checks or pulls `OLLAMA_MODEL` in the background.
 - The first AI-enabled startup can take several minutes while Ollama downloads the model.
 
 ## Runtime Modes
@@ -71,8 +73,9 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
 
 Production behavior:
 - Frontend serves the built static app through nginx on port `3001`.
-- Backend runs the Ollama readiness helper, then migrations, then starts the compiled server.
-- When `AI_ENABLED=true`, startup blocks until `OLLAMA_MODEL` is available.
+- Backend auto-runs migrations and then starts the compiled server.
+- Scheduled scraping starts disabled on every backend boot and must be enabled from the admin page.
+- When `AI_ENABLED=true`, startup remains non-blocking while Ollama/model readiness is checked in the background.
 
 ## API Summary
 
@@ -84,6 +87,7 @@ Production behavior:
 | GET | `/api/employers` | Active employers only |
 | GET | `/api/employers?all=true` | Include inactive employers |
 | POST | `/api/scrape` | Trigger manual scrape run |
+| POST | `/api/scrape/control` | Enable or disable scheduled scraping |
 | GET | `/api/scrape/status?limit=n` | Run status + recent history (`limit` 1..50, default 10) |
 
 Manual scrape trigger example:
@@ -139,38 +143,21 @@ psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrap
 
 `db:verify-journal` checks file/journal consistency and validates that `_journal.json` `entries[].when` values are strictly increasing in entry order.
 
-## AI normalization (Ollama / gemma3)
+## Ollama Runtime
 
-- New package: `packages/ai-agent`
-- New backend columns:
-  - `salary_normalized_raw`
-  - `salary_normalized_min`
-  - `salary_normalized_max`
-  - `salary_currency`
-  - `salary_period`
-  - `requirements_text`
-  - `requirements_html`
-  - `responsibilities_text`
-  - `responsibilities_html`
-  - `summary_text`
-  - `normalized_description_text`
-  - `normalized_description_html`
-  - `ai_payload`
-  - `ai_provider`
-  - `ai_model`
-  - `ai_normalized_at`
-  - `ai_warnings`
-
-Set `AI_ENABLED=true` only when you want ingestion to call Ollama (off by default).
+- `packages/ai-agent` remains in the repo as a small utility package for future work.
+- Ollama/model startup monitoring is still supported through backend startup and `/health/details`.
+- Job ingestion no longer calls Ollama for normalization or extraction.
 
 Important:
-- AI settings such as `AI_ENABLED` and `AI_MAX_PARALLELISM` are read from local `.env.development`.
+- AI settings such as `AI_ENABLED` are read from local `.env.development`.
 - `.env.development` is gitignored, so those values are developer-local and not part of the repo's committed defaults.
-- `.env.production.example` provides the tracked production template for the same AI settings.
+- `.env.production.example` provides the tracked production template for the same Ollama settings.
 - `OLLAMA_MODEL` is the single source of truth for which model startup provisions.
-- `OLLAMA_READY_TIMEOUT_MS` controls how long startup waits for the Ollama API to become reachable.
-- `OLLAMA_PULL_TIMEOUT_MS` controls how long startup allows model discovery/pull verification to take.
-- When `AI_ENABLED=false`, backend startup skips all Ollama readiness checks.
+- `OLLAMA_READY_TIMEOUT_MS` controls each readiness check against the Ollama API.
+- `OLLAMA_PULL_TIMEOUT_MS` controls model discovery/pull verification time per check.
+- `OLLAMA_RETRY_INTERVAL_MS` controls background retry cadence when Ollama is enabled but not ready.
+- When `AI_ENABLED=false`, backend startup skips Ollama readiness checks.
 
 ## Current Scope / Non-goals
 

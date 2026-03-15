@@ -2,17 +2,41 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-describe('production docker backend command', () => {
-  it('ensures Ollama readiness before migrations and server startup', async () => {
+describe('docker backend startup commands', () => {
+  it('runs base compose migrations before starting the backend server', async () => {
+    const root = resolve(import.meta.dirname, '../../../..');
+    const compose = await readFile(resolve(root, 'docker-compose.yml'), 'utf8');
+
+    const migrateIndex = compose.indexOf('npm run db:migrate');
+    const startIndex = compose.indexOf('npm run start');
+
+    expect(migrateIndex).toBeGreaterThanOrEqual(0);
+    expect(startIndex).toBeGreaterThan(migrateIndex);
+    expect(compose).not.toContain('node dist/startup/ensureOllama.js');
+  });
+
+  it('runs dev compose migrations before starting watch mode without Ollama gating', async () => {
+    const root = resolve(import.meta.dirname, '../../../..');
+    const compose = await readFile(resolve(root, 'docker-compose.override.yml'), 'utf8');
+
+    const migrateIndex = compose.indexOf('npm run db:migrate');
+    const startIndex = compose.indexOf('npx tsx watch src/index.ts');
+
+    expect(migrateIndex).toBeGreaterThanOrEqual(0);
+    expect(startIndex).toBeGreaterThan(migrateIndex);
+    expect(compose).toContain('npx tsx watch src/index.ts');
+    expect(compose).not.toContain('src/startup/ensureOllama.ts');
+  });
+
+  it('runs production migrations then starts the server without Ollama gating', async () => {
     const root = resolve(import.meta.dirname, '../../../..');
     const compose = await readFile(resolve(root, 'docker-compose.prod.yml'), 'utf8');
 
-    const ensureIndex = compose.indexOf('node dist/startup/ensureOllama.js');
-    const migrateIndex = compose.indexOf('npx tsx src/db/migrate.ts');
+    const migrateIndex = compose.indexOf('npm run db:migrate');
     const startIndex = compose.indexOf('node dist/index.js');
 
-    expect(ensureIndex).toBeGreaterThanOrEqual(0);
-    expect(migrateIndex).toBeGreaterThan(ensureIndex);
+    expect(compose).not.toContain('node dist/startup/ensureOllama.js');
+    expect(migrateIndex).toBeGreaterThanOrEqual(0);
     expect(startIndex).toBeGreaterThan(migrateIndex);
   });
 });

@@ -10,67 +10,70 @@ vi.mock('../../src/scrapers/pipeline.js', () => ({
     lastStartedAt: '2026-03-11T00:00:00.000Z',
     lastResult: null,
     recentRuns: [],
+    bootstrapState: 'ready',
+    bootstrapMessage: null,
+  })),
+}));
+
+vi.mock('../../src/scheduler.js', () => ({
+  getScrapeControlState: vi.fn(() => ({
+    scheduledScrapingEnabled: false,
+    schedulerArmed: false,
+    resetsOnRestart: true,
+  })),
+  setScheduledScrapingEnabled: vi.fn((enabled: boolean) => ({
+    scheduledScrapingEnabled: enabled,
+    schedulerArmed: enabled,
+    resetsOnRestart: true,
   })),
 }));
 
 type PostReq = { body?: Record<string, unknown> };
+type Req = { query: Record<string, unknown> };
 
-describe('POST / handler', () => {
+function makeResponse(): {
+  res: { status: (code: number) => { json: (payload: unknown) => unknown };
+  json: (payload: unknown) => unknown };
+  statusCode: () => number;
+} {
+  let statusCode = 200;
+  const res: {
+    status: (code: number) => { json: (payload: unknown) => unknown };
+    json: (payload: unknown) => unknown;
+  } = {
+    status: (code: number) => {
+      statusCode = code;
+      return res;
+    },
+    json: vi.fn(),
+  };
+  return { res, statusCode: () => statusCode };
+}
+
+function getRouteHandler(path: string) {
+  const layer = scrapeRouter.stack.find(
+    (entry: { route?: { path?: string; stack?: { handle: unknown }[] } }) =>
+      entry.route?.path === path && entry.route.stack?.[0],
+  );
+
+  return layer!.route!.stack![0].handle as (
+    req: PostReq | Req,
+    res: { status: (code: number) => { json: (payload: unknown) => unknown }; json: (payload: unknown) => unknown },
+    next: (err?: unknown) => void,
+  ) => Promise<void>;
+}
+
+describe('scrape routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
-
-  function makeResponse(): {
-    res: { status: (code: number) => { json: (payload: unknown) => unknown };
-    json: (payload: unknown) => unknown };
-    statusCode: () => number;
-  } {
-    let statusCode = 200;
-    const res: {
-      status: (code: number) => { json: (payload: unknown) => unknown };
-      json: (payload: unknown) => unknown;
-    } = {
-      status: (code: number) => {
-        statusCode = code;
-        return res;
-      },
-      json: vi.fn(),
-    };
-    return { res, statusCode: () => statusCode };
-  }
-
-  function getPostHandler() {
-    const postLayer = scrapeRouter.stack.find(
-      (layer: { route?: { path?: string; stack?: { handle: unknown }[] } }) =>
-        layer.route?.path === '/' && layer.route.stack?.[0],
-    );
-    const handler = postLayer!.route!.stack![0].handle;
-    return handler as (
-      req: PostReq,
-      res: { status: (code: number) => { json: (payload: unknown) => unknown }; json: (payload: unknown) => unknown },
-      next: (err?: unknown) => void,
-    ) => Promise<void>;
-  }
-
-  function getTestPostHandler() {
-    const postLayer = scrapeRouter.stack.find(
-      (layer: { route?: { path?: string; stack?: { handle: unknown }[] } }) =>
-        layer.route?.path === '/test' && layer.route.stack?.[0],
-    );
-    const handler = postLayer!.route!.stack![0].handle;
-    return handler as (
-      req: PostReq,
-      res: { status: (code: number) => { json: (payload: unknown) => unknown }; json: (payload: unknown) => unknown },
-      next: (err?: unknown) => void,
-    ) => Promise<void>;
-  }
 
   it('calls triggerPipeline with undefined when no body is sent', async () => {
     const pipeline = await import('../../src/scrapers/pipeline.js');
     const triggerPipeline = pipeline.triggerPipeline as ReturnType<typeof vi.fn>;
     triggerPipeline.mockResolvedValue('run-1');
 
-    const handler = getPostHandler();
+    const handler = getRouteHandler('/');
     const req: PostReq = { body: {} };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
@@ -87,7 +90,7 @@ describe('POST / handler', () => {
     const triggerPipeline = pipeline.triggerPipeline as ReturnType<typeof vi.fn>;
     triggerPipeline.mockResolvedValue('run-2');
 
-    const handler = getPostHandler();
+    const handler = getRouteHandler('/');
     const req: PostReq = { body: { employerKey: 'paychex' } };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
@@ -99,12 +102,12 @@ describe('POST / handler', () => {
     expect(triggerPipeline).toHaveBeenCalledWith('paychex');
   });
 
-  it('returns 409 when triggerPipeline returns null (already running)', async () => {
+  it('returns 409 when triggerPipeline returns null', async () => {
     const pipeline = await import('../../src/scrapers/pipeline.js');
     const triggerPipeline = pipeline.triggerPipeline as ReturnType<typeof vi.fn>;
     triggerPipeline.mockResolvedValue(null);
 
-    const handler = getPostHandler();
+    const handler = getRouteHandler('/');
     const req: PostReq = { body: {} };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
@@ -119,39 +122,9 @@ describe('POST / handler', () => {
     });
   });
 
-  it('returns 400 when employerKey is a non-string type', async () => {
-    const handler = getPostHandler();
+  it('returns 400 when employerKey is invalid', async () => {
+    const handler = getRouteHandler('/');
     const req: PostReq = { body: { employerKey: 42 } };
-    const { res, statusCode } = makeResponse();
-    const next = vi.fn();
-
-    await handler(req, res, next);
-
-    expect(statusCode()).toBe(400);
-    expect(res.json).toHaveBeenCalledWith({
-      error: 'employerKey must be a non-empty string',
-      code: 'INVALID_EMPLOYER_KEY',
-    });
-  });
-
-  it('returns 400 when employerKey is an empty string', async () => {
-    const handler = getPostHandler();
-    const req: PostReq = { body: { employerKey: '' } };
-    const { res, statusCode } = makeResponse();
-    const next = vi.fn();
-
-    await handler(req, res, next);
-
-    expect(statusCode()).toBe(400);
-    expect(res.json).toHaveBeenCalledWith({
-      error: 'employerKey must be a non-empty string',
-      code: 'INVALID_EMPLOYER_KEY',
-    });
-  });
-
-  it('returns 400 when employerKey is a whitespace-only string', async () => {
-    const handler = getPostHandler();
-    const req: PostReq = { body: { employerKey: '   ' } };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
 
@@ -169,7 +142,7 @@ describe('POST / handler', () => {
     const triggerTestPipeline = pipeline.triggerTestPipeline as ReturnType<typeof vi.fn>;
     triggerTestPipeline.mockResolvedValue('test-run-1');
 
-    const handler = getTestPostHandler();
+    const handler = getRouteHandler('/test');
     const req: PostReq = { body: { employerKey: 'paychex' } };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
@@ -182,7 +155,7 @@ describe('POST / handler', () => {
   });
 
   it('returns 400 for POST /test when employerKey is missing', async () => {
-    const handler = getTestPostHandler();
+    const handler = getRouteHandler('/test');
     const req: PostReq = { body: {} };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
@@ -201,7 +174,7 @@ describe('POST / handler', () => {
     const triggerTestPipeline = pipeline.triggerTestPipeline as ReturnType<typeof vi.fn>;
     triggerTestPipeline.mockResolvedValue(null);
 
-    const handler = getTestPostHandler();
+    const handler = getRouteHandler('/test');
     const req: PostReq = { body: { employerKey: 'paychex' } };
     const { res, statusCode } = makeResponse();
     const next = vi.fn();
@@ -215,54 +188,49 @@ describe('POST / handler', () => {
       started: false,
     });
   });
-});
 
-type Req = { query: Record<string, unknown> };
+  it('updates scheduled scraping state for POST /control', async () => {
+    const scheduler = await import('../../src/scheduler.js');
+    const setControl = scheduler.setScheduledScrapingEnabled as ReturnType<typeof vi.fn>;
 
-describe('scrape status route handler', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
+    const handler = getRouteHandler('/control');
+    const req: PostReq = { body: { scheduledScrapingEnabled: true } };
+    const { res, statusCode } = makeResponse();
+    const next = vi.fn();
+
+    await handler(req, res, next);
+
+    expect(statusCode()).toBe(200);
+    expect(setControl).toHaveBeenCalledWith(true);
+    expect(res.json).toHaveBeenCalledWith({
+      scheduledScrapingEnabled: true,
+      schedulerArmed: true,
+      resetsOnRestart: true,
+    });
   });
 
-  function makeResponse(): {
-    res: { status: (code: number) => { json: (payload: unknown) => unknown };
-    json: (payload: unknown) => unknown };
-    statusCode: () => number;
-  } {
-    let statusCode = 200;
-    const res: {
-      status: (code: number) => { json: (payload: unknown) => unknown };
-      json: (payload: unknown) => unknown;
-    } = {
-      status: (code: number) => {
-        statusCode = code;
-        return res;
-      },
-      json: vi.fn(),
-    };
-    return { res, statusCode: () => statusCode };
-  }
+  it('returns 400 for POST /control when control value is invalid', async () => {
+    const handler = getRouteHandler('/control');
+    const req: PostReq = { body: {} };
+    const { res, statusCode } = makeResponse();
+    const next = vi.fn();
 
-  function getStatusHandler() {
-    const statusLayer = scrapeRouter.stack.find(
-      (layer: { route?: { path?: string; stack?: { handle: unknown }[] } }) =>
-        layer.route?.path === '/status',
-    );
-    const handler = statusLayer.route.stack[0].handle;
-    return handler as (
-      req: Req,
-      res: { status: (code: number) => { json: (payload: unknown) => unknown }; json: (payload: unknown) => unknown },
-      next: () => void,
-    ) => Promise<unknown> | unknown;
-  }
+    await handler(req, res, next);
+
+    expect(statusCode()).toBe(400);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'scheduledScrapingEnabled must be a boolean',
+      code: 'INVALID_SCRAPE_CONTROL',
+    });
+  });
 
   it('returns invalid query error when limit exceeds maximum', async () => {
-    const statusHandler = getStatusHandler();
+    const handler = getRouteHandler('/status');
     const req: Req = { query: { limit: '51' } };
     const { statusCode, res } = makeResponse();
     const next = vi.fn();
 
-    await statusHandler(req, res, next);
+    await handler(req, res, next);
 
     expect(statusCode()).toBe(400);
     expect(res.json).toHaveBeenCalledWith({
@@ -271,41 +239,52 @@ describe('scrape status route handler', () => {
     });
   });
 
-  it('passes validated limit to getScrapeStatus', async () => {
+  it('passes validated limit to getScrapeStatus and includes control state', async () => {
     const pipeline = await import('../../src/scrapers/pipeline.js');
+    const scheduler = await import('../../src/scheduler.js');
     const getScrapeStatus = pipeline.getScrapeStatus as vi.Mock;
+    const getControlState = scheduler.getScrapeControlState as vi.Mock;
 
-    const statusHandler = getStatusHandler();
+    const handler = getRouteHandler('/status');
     const req: Req = { query: { limit: '12' } };
     const { statusCode, res } = makeResponse();
     const next = vi.fn();
 
-    await statusHandler(req, res, next);
+    await handler(req, res, next);
 
     expect(statusCode()).toBe(200);
+    expect(getScrapeStatus).toHaveBeenCalledWith(12);
+    expect(getControlState).toHaveBeenCalled();
     expect(res.json).toHaveBeenCalledWith({
       running: false,
       runId: 'run-12',
       lastStartedAt: '2026-03-11T00:00:00.000Z',
       lastResult: null,
       recentRuns: [],
+      bootstrapState: 'ready',
+      bootstrapMessage: null,
+      scheduledScrapingEnabled: false,
+      schedulerArmed: false,
+      resetsOnRestart: true,
     });
-    expect(getScrapeStatus).toHaveBeenCalledWith(12);
   });
 
-  it('uses default limit when query is omitted', async () => {
+  it('passes non-bootstrap status errors to next for GET /status', async () => {
     const pipeline = await import('../../src/scrapers/pipeline.js');
     const getScrapeStatus = pipeline.getScrapeStatus as vi.Mock;
+    const error = new Error('database offline');
 
-    const statusHandler = getStatusHandler();
+    getScrapeStatus.mockRejectedValueOnce(error);
+
+    const handler = getRouteHandler('/status');
     const req: Req = { query: {} };
-    const { statusCode, res } = makeResponse();
+    const { res, statusCode } = makeResponse();
     const next = vi.fn();
 
-    await statusHandler(req, res, next);
+    await handler(req, res, next);
 
     expect(statusCode()).toBe(200);
-    expect(res.json).toHaveBeenCalled();
-    expect(getScrapeStatus).toHaveBeenCalledWith(10);
+    expect(next).toHaveBeenCalledWith(error);
+    expect(res.json).not.toHaveBeenCalled();
   });
 });

@@ -13,6 +13,7 @@ export interface ScrapedJob {
 }
 
 export type ScrapeRunType = 'normal' | 'test';
+export type ScrapeBootstrapState = 'ready' | 'migrating' | 'uninitialized';
 
 /** Summary returned by the scrape pipeline after a full run. */
 export interface ScrapeResult {

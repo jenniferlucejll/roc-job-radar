@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { fetchEmployers, fetchJobs, fetchScrapeStatus, triggerScrape, triggerTestScrape } from '../api/client.js'
+import { fetchEmployers, fetchJobs, fetchScrapeStatus, setScheduledScrapingEnabled, triggerScrape, triggerTestScrape } from '../api/client.js'
 import type { Employer, ScrapeEmployerSummary, ScrapeRunSummary, ScrapeStatusResponse } from '../types/index.js'
 
 const STATUS_COLOR: Record<string, string> = {
@@ -102,9 +102,11 @@ export function AdminPage() {
   const [employers, setEmployers] = useState<Employer[]>([])
   const [jobStats, setJobStats] = useState<{ active: number; newThisWeek: number; removed: number } | null>(null)
   const [triggering, setTriggering] = useState(false)
+  const [togglingScheduledScraping, setTogglingScheduledScraping] = useState(false)
   const [triggeringEmployer, setTriggeringEmployer] = useState<string | null>(null)
   const [testingEmployer, setTestingEmployer] = useState<string | null>(null)
   const wasRunning = useRef(false)
+  const attemptedAdminDataRefresh = useRef(false)
 
   const refreshStatus = useCallback(() => {
     fetchScrapeStatus(20)
@@ -115,11 +117,11 @@ export function AdminPage() {
       .catch(() => {})
   }, [])
 
-  useEffect(() => {
-    refreshStatus()
-    fetchEmployers(true).then(setEmployers).catch(() => {})
+  const refreshAdminData = useCallback(() => {
+    fetchEmployers(true)
+      .then(setEmployers)
+      .catch(() => {})
 
-    // Job stats: active count + new this week + removed count
     const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
     Promise.all([
       fetchJobs({ status: 'active' }),
@@ -131,13 +133,37 @@ export function AdminPage() {
         setJobStats({ active: active.length, newThisWeek, removed })
       })
       .catch(() => {})
-  }, [refreshStatus])
+  }, [])
+
+  useEffect(() => {
+    refreshStatus()
+    refreshAdminData()
+  }, [refreshAdminData, refreshStatus])
 
   // Poll while running
   useEffect(() => {
     const interval = setInterval(refreshStatus, scrapeStatus?.running ? 5_000 : 30_000)
     return () => clearInterval(interval)
   }, [refreshStatus, scrapeStatus?.running])
+
+  useEffect(() => {
+    const ready = scrapeStatus?.bootstrapState === 'ready'
+    const needsAdminData = employers.length === 0 || jobStats === null
+
+    if (!ready || !needsAdminData) {
+      if (!needsAdminData) {
+        attemptedAdminDataRefresh.current = false
+      }
+      return
+    }
+
+    if (attemptedAdminDataRefresh.current) {
+      return
+    }
+
+    attemptedAdminDataRefresh.current = true
+    refreshAdminData()
+  }, [employers.length, jobStats, refreshAdminData, scrapeStatus?.bootstrapState])
 
   async function handleScrapeEmployer(key: string) {
     setTriggeringEmployer(key)
@@ -169,8 +195,25 @@ export function AdminPage() {
     }
   }
 
+  async function handleToggleScheduledScraping() {
+    const nextValue = !(scrapeStatus?.scheduledScrapingEnabled ?? false)
+    setTogglingScheduledScraping(true)
+    try {
+      await setScheduledScrapingEnabled(nextValue)
+      refreshStatus()
+    } finally {
+      setTogglingScheduledScraping(false)
+    }
+  }
+
   const running = scrapeStatus?.running ?? false
   const last = scrapeStatus?.lastResult
+  const bootstrapState = scrapeStatus?.bootstrapState ?? 'uninitialized'
+  const bootstrapMessage = scrapeStatus === null
+    ? 'Checking backend bootstrap status before enabling admin scrape controls.'
+    : scrapeStatus.bootstrapMessage
+  const bootstrapBlocking = scrapeStatus === null || bootstrapState !== 'ready'
+  const scheduledScrapingEnabled = scrapeStatus?.scheduledScrapingEnabled ?? false
   const normalRuns = scrapeStatus?.recentRuns.filter((run) => run.runType === 'normal') ?? []
   const testRuns = scrapeStatus?.recentRuns.filter((run) => run.runType === 'test') ?? []
 
@@ -180,25 +223,66 @@ export function AdminPage() {
 
         {/* Scrape Control */}
         <SectionCard title="Scrape Control">
-          <div className="flex items-center gap-4 flex-wrap">
-            <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${running ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
-              <span className="text-sm text-gray-700">
-                {running
-                  ? 'Scrape in progress…'
-                  : scrapeStatus?.lastStartedAt
-                  ? `Last run ${formatDateTime(scrapeStatus.lastStartedAt)}`
-                  : 'Never run'}
-              </span>
-              {last && !running && <StatusBadge status={last.status} />}
+          <div className="space-y-4">
+            {bootstrapBlocking && bootstrapMessage && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {bootstrapMessage}
+              </div>
+            )}
+            <div className="flex items-center gap-4 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${scheduledScrapingEnabled ? 'bg-green-500' : 'bg-gray-300'}`} />
+                <span className="text-sm font-medium text-gray-800">
+                  Scheduled scraping {scheduledScrapingEnabled ? 'enabled' : 'disabled'}
+                </span>
+                <span className="text-xs text-gray-500">
+                  {scrapeStatus?.schedulerArmed ? 'Cron armed' : 'Cron idle'}
+                </span>
+              </div>
+              <button
+                onClick={handleToggleScheduledScraping}
+                disabled={togglingScheduledScraping || bootstrapBlocking}
+                className={`ml-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                  scheduledScrapingEnabled
+                    ? 'bg-gray-800 text-white hover:bg-gray-900'
+                    : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                }`}
+              >
+                {togglingScheduledScraping
+                  ? 'Saving…'
+                  : scheduledScrapingEnabled
+                  ? 'Disable Scheduled Scraping'
+                  : 'Enable Scheduled Scraping'}
+              </button>
             </div>
-            <button
-              onClick={handleRunNow}
-              disabled={running || triggering}
-              className="ml-auto px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {running ? 'Running…' : 'Run Scrape Now'}
-            </button>
+
+            <div className="text-sm text-gray-600 space-y-1">
+              <p>This controls cron-triggered scraping only. Manual admin scrapes remain available.</p>
+              {scrapeStatus?.resetsOnRestart && (
+                <p className="text-amber-700">Scheduled scraping resets to disabled whenever the backend restarts.</p>
+              )}
+            </div>
+
+            <div className="flex items-center gap-4 flex-wrap border-t border-gray-100 pt-4">
+              <div className="flex items-center gap-2">
+                <span className={`w-2.5 h-2.5 rounded-full ${running ? 'bg-blue-500 animate-pulse' : 'bg-gray-300'}`} />
+                <span className="text-sm text-gray-700">
+                  {running
+                    ? 'Scrape in progress…'
+                    : scrapeStatus?.lastStartedAt
+                    ? `Last run ${formatDateTime(scrapeStatus.lastStartedAt)}`
+                    : 'Never run'}
+                </span>
+                {last && !running && <StatusBadge status={last.status} />}
+              </div>
+              <button
+                onClick={handleRunNow}
+                disabled={running || triggering || bootstrapBlocking}
+                className="ml-auto px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {running ? 'Running…' : 'Run Scrape Now'}
+              </button>
+            </div>
           </div>
           {last && (
             <div className="flex gap-6 mt-4 text-sm text-gray-600">
@@ -372,14 +456,14 @@ export function AdminPage() {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => handleScrapeEmployer(emp.key)}
-                          disabled={running || triggeringEmployer === emp.key || testingEmployer === emp.key || !emp.active}
+                          disabled={running || bootstrapBlocking || triggeringEmployer === emp.key || testingEmployer === emp.key || !emp.active}
                           className="px-3 py-1 rounded text-xs font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           {triggeringEmployer === emp.key ? 'Starting…' : 'Scrape'}
                         </button>
                         <button
                           onClick={() => handleTestScrapeEmployer(emp.key)}
-                          disabled={running || triggeringEmployer === emp.key || testingEmployer === emp.key || !emp.active}
+                          disabled={running || bootstrapBlocking || triggeringEmployer === emp.key || testingEmployer === emp.key || !emp.active}
                           className="px-3 py-1 rounded text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                         >
                           {testingEmployer === emp.key ? 'Starting…' : 'Test Scrape (3)'}

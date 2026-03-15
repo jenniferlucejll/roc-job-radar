@@ -12,7 +12,7 @@ services:
       context: .
       dockerfile: packages/backend/Dockerfile
     command: >
-      sh -c "npx tsx src/startup/ensureOllama.ts && npx tsx watch src/index.ts"
+      sh -c "npm run db:migrate && npx tsx watch src/index.ts"
     ports:
       - "${BACKEND_PORT:-3000}:3000"
     volumes:

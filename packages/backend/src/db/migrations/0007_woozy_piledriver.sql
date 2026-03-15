@@ -1,1 +1,0 @@
-ALTER TABLE "scrape_runs" ADD COLUMN "run_type" text DEFAULT 'normal' NOT NULL;

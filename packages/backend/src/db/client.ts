@@ -11,4 +11,5 @@ const sql = postgres({
   password: config.db.password,
 });
 
+export const sqlClient = sql;
 export const db = drizzle(sql, { schema });

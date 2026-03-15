@@ -39,6 +39,24 @@ export async function fetchScrapeStatus(limit = 10): Promise<ScrapeStatusRespons
   return get<ScrapeStatusResponse>(`/api/scrape/status?limit=${limit}`)
 }
 
+export async function setScheduledScrapingEnabled(enabled: boolean): Promise<{
+  scheduledScrapingEnabled: boolean
+  schedulerArmed: boolean
+  resetsOnRestart: true
+}> {
+  const res = await fetch('/api/scrape/control', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheduledScrapingEnabled: enabled }),
+  })
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+  return res.json() as Promise<{
+    scheduledScrapingEnabled: boolean
+    schedulerArmed: boolean
+    resetsOnRestart: true
+  }>
+}
+
 export async function triggerScrape(employerKey?: string): Promise<{ started: boolean; runId: string }> {
   const bodyStr = employerKey !== undefined ? JSON.stringify({ employerKey }) : undefined
   const res = await fetch('/api/scrape', {

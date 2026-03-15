@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: packages/backend/Dockerfile
     command: >
-      sh -c "node dist/startup/ensureOllama.js && npm run start"
+      sh -c "npm run db:migrate && npm run start"
     environment:
       POSTGRES_HOST: postgres
       SERVER_HOST: 0.0.0.0

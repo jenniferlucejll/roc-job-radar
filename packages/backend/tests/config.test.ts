@@ -14,7 +14,7 @@ beforeEach(() => {
   for (const key of [
     'POSTGRES_HOST', 'POSTGRES_PORT', 'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
     'PORT', 'SERVER_HOST', 'NODE_ENV', 'SCRAPE_CRON', 'SCRAPE_TIMEOUT_MS', 'SCRAPE_MAX_RETRY_ATTEMPTS', 'SCRAPE_RETRY_BASE_DELAY_MS', 'SCRAPE_REQUEST_INTERVAL_MS', 'SCRAPE_DETAIL_INTERVAL_MS', 'USER_AGENT',
-    'AI_ENABLED', 'OLLAMA_API_URL', 'OLLAMA_MODEL', 'OLLAMA_READY_TIMEOUT_MS', 'OLLAMA_PULL_TIMEOUT_MS', 'AI_REQ_TIMEOUT_MS',
+    'AI_ENABLED', 'OLLAMA_API_URL', 'OLLAMA_MODEL', 'OLLAMA_READY_TIMEOUT_MS', 'OLLAMA_PULL_TIMEOUT_MS', 'OLLAMA_RETRY_INTERVAL_MS', 'AI_REQ_TIMEOUT_MS',
     'AI_MAX_CHARS', 'AI_REQUEST_MAX_TOKENS', 'AI_MAX_PARALLELISM', 'AI_MAX_RETRIES', 'AI_RETRY_BASE_DELAY_MS',
   ]) {
     delete process.env[key];
@@ -60,6 +60,7 @@ describe('config', () => {
     expect(config.scraper.ai.model).toBe('gemma3');
     expect(config.scraper.ai.readyTimeoutMs).toBe(60_000);
     expect(config.scraper.ai.pullTimeoutMs).toBe(600_000);
+    expect(config.scraper.ai.retryIntervalMs).toBe(30_000);
   });
 
   it('reads overridden values from env', async () => {
@@ -79,6 +80,7 @@ describe('config', () => {
       OLLAMA_MODEL: 'llama3.2',
       OLLAMA_READY_TIMEOUT_MS: '123000',
       OLLAMA_PULL_TIMEOUT_MS: '456000',
+      OLLAMA_RETRY_INTERVAL_MS: '789000',
       AI_MAX_PARALLELISM: '1',
     });
     const config = await loadConfig();
@@ -97,6 +99,7 @@ describe('config', () => {
     expect(config.scraper.ai.model).toBe('llama3.2');
     expect(config.scraper.ai.readyTimeoutMs).toBe(123_000);
     expect(config.scraper.ai.pullTimeoutMs).toBe(456_000);
+    expect(config.scraper.ai.retryIntervalMs).toBe(789_000);
     expect(config.scraper.ai.maxParallelism).toBe(1);
   });
 

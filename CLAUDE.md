@@ -45,6 +45,7 @@ docker-compose.override.yml  Dev overrides (hot reload, host port exposure)
 **Scheduler** (`packages/backend/src/scheduler.ts`)
   - node-cron, schedule configurable via `SCRAPE_CRON`.
   - schedule runs once daily; required default is set in `.env` as `0 8 * * *`.
+  - scheduled scraping starts disabled on every backend boot and must be enabled explicitly from the admin page.
 - Only one scrape run at a time (idempotent)
 
 ### Frontend (`packages/frontend/src/`)
@@ -89,8 +90,9 @@ docker compose up          # starts postgres, backend, and frontend
 
 - Backend hot reload runs in Docker on port `3000`.
 - Frontend runs as a Dockerized Vite dev server with hot reload on port `3001`.
+- Docker startup auto-runs backend migrations before the API process starts.
 - After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
-- When `AI_ENABLED=true`, backend startup waits for Ollama and auto-provisions `OLLAMA_MODEL` before the server starts.
+- When `AI_ENABLED=true`, backend startup stays non-blocking. The server starts immediately, then checks or pulls `OLLAMA_MODEL` in the background.
 
 ### Start frontend dev server without Docker (optional)
 ```bash
@@ -279,13 +281,14 @@ Key env vars:
 - `SCRAPE_CRON` — cron expression for scheduler
   - required at startup (`config.ts` reads this as required)
   - default in `.env.example` is `0 8 * * *` (once daily)
+  - cron is configured at startup, but scheduled scraping remains disabled until explicitly enabled from admin
 - `SCRAPE_DETAIL_INTERVAL_MS` — delay between Workday detail fetches for enrichment (default: 3000ms)
 - `USER_AGENT` — sent with all HTTP requests to employer sites
 - `SCRAPE_TIMEOUT_MS` — per-request timeout
 - `AI_ENABLED`, `AI_MAX_PARALLELISM`, and related AI settings are local `.env.development` values and are not committed repo defaults
 - `OLLAMA_READY_TIMEOUT_MS` — startup wait budget for Ollama API readiness (default: 60000ms)
 - `OLLAMA_PULL_TIMEOUT_MS` — startup wait budget for model discovery/pull verification (default: 600000ms)
-- `.env.production.example` is the tracked production template; production startup blocks on model readiness when `AI_ENABLED=true`
+- `.env.production.example` is the tracked production template; production startup no longer blocks on model readiness when `AI_ENABLED=true`
 
 ---
 

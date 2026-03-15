@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fetchEmployers, fetchJobs, fetchJob, fetchScrapeStatus, triggerScrape, triggerTestScrape } from './client.js'
+import { fetchEmployers, fetchJobs, fetchJob, fetchScrapeStatus, setScheduledScrapingEnabled, triggerScrape, triggerTestScrape } from './client.js'
 
 function mockFetch(body: unknown, status = 200) {
   return vi.fn().mockResolvedValue({
@@ -195,17 +195,60 @@ describe('fetchJob', () => {
 
 describe('fetchScrapeStatus', () => {
   it('uses default limit of 10', async () => {
-    const spy = mockFetch({ running: false, recentRuns: [] })
+    const spy = mockFetch({
+      running: false,
+      runId: null,
+      lastStartedAt: null,
+      lastResult: null,
+      recentRuns: [],
+      bootstrapState: 'ready',
+      bootstrapMessage: null,
+      scheduledScrapingEnabled: false,
+      schedulerArmed: false,
+      resetsOnRestart: true,
+    })
     vi.stubGlobal('fetch', spy)
     await fetchScrapeStatus()
     expect(spy).toHaveBeenCalledWith('/api/scrape/status?limit=10')
   })
 
   it('passes custom limit', async () => {
-    const spy = mockFetch({ running: false, recentRuns: [] })
+    const spy = mockFetch({
+      running: false,
+      runId: null,
+      lastStartedAt: null,
+      lastResult: null,
+      recentRuns: [],
+      bootstrapState: 'ready',
+      bootstrapMessage: null,
+      scheduledScrapingEnabled: false,
+      schedulerArmed: false,
+      resetsOnRestart: true,
+    })
     vi.stubGlobal('fetch', spy)
     await fetchScrapeStatus(25)
     expect(spy).toHaveBeenCalledWith('/api/scrape/status?limit=25')
+  })
+})
+
+describe('setScheduledScrapingEnabled', () => {
+  it('POSTs the new scheduled scraping state', async () => {
+    const spy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        scheduledScrapingEnabled: true,
+        schedulerArmed: true,
+        resetsOnRestart: true,
+      }),
+    })
+    vi.stubGlobal('fetch', spy)
+    await setScheduledScrapingEnabled(true)
+    expect(spy).toHaveBeenCalledWith('/api/scrape/control', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"scheduledScrapingEnabled":true}',
+    })
   })
 })
 

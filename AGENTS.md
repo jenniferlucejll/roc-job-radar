@@ -45,6 +45,7 @@ docker-compose.override.yml  Dev overrides (hot reload, host port exposure)
 **Scheduler** (`packages/backend/src/scheduler.ts`)
   - node-cron, schedule configurable via `SCRAPE_CRON`.
   - schedule runs once daily; required default is set in `.env` as `0 8 * * *`.
+  - scheduled scraping starts disabled on every backend boot and must be enabled explicitly from the admin page.
 - Only one scrape run at a time (idempotent)
 
 ### Data Flow
@@ -71,8 +72,9 @@ docker compose up          # starts postgres, backend, and frontend
 
 - Backend hot reload runs in Docker on port `3000`.
 - Frontend runs as a Dockerized Vite dev server with hot reload on port `3001`.
+- Docker startup auto-runs backend migrations before the API process starts.
 - After changing frontend Docker config, rebuild that service with `docker compose up -d --build frontend`.
-- When `AI_ENABLED=true`, backend startup waits for Ollama and auto-provisions `OLLAMA_MODEL` before the server starts.
+- When `AI_ENABLED=true`, backend startup stays non-blocking. The server starts immediately, then checks or pulls `OLLAMA_MODEL` in the background and reports AI readiness separately from process health.
 
 ### Backend only (without Docker, for rapid iteration)
 ```bash
@@ -85,7 +87,10 @@ npm run dev                # tsx watch src/index.ts
 cd packages/backend
 npm run db:generate        # generate migration from schema changes (drizzle-kit)
 npm run db:migrate         # apply pending migrations
+npm run db:seed            # seed default employers + keyword filters
 ```
+
+Migration history was intentionally squashed on March 13, 2026. The committed migration set is now a fresh baseline for empty-database bootstrap, not a preserved incremental history.
 
 ### Migration verification (no shortcuts)
 
@@ -97,6 +102,7 @@ Use this sequence when confirming latest migrations:
 cd packages/backend
 npm run db:generate        # should report no unexpected pending changes
 npm run db:migrate         # must be the only way schema changes are applied
+npm run db:seed            # optional for runtime bootstrap; required when verifying seeded APIs
 npm run db:verify-journal  # verify migration SQL, journal, and ledger consistency
 psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at FROM drizzle.__drizzle_migrations ORDER BY id DESC;"
 psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"
@@ -113,20 +119,23 @@ CI also runs `npm --workspace @roc-job-radar/backend run db:verify-journal` on e
 #### Migration troubleshooting checklist
 
 1. Confirm `.env.development` points at the intended database.
-2. Run `npm run db:generate`; if it creates a change unexpectedly, regenerate migrations before continuing.
-3. Run `npm run db:migrate`.
+2. For a brand-new local database, run `npm run db:migrate` and then `npm run db:seed`.
+3. Run `npm run db:generate`; if it creates a change unexpectedly, regenerate migrations before continuing.
 4. Run `npm run db:verify-journal` to confirm file/journal/ledger alignment.
 5. Verify latest ledger rows:
    - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT id, to_timestamp(created_at/1000) AS applied_at FROM drizzle.__drizzle_migrations ORDER BY id DESC;"`
 6. Verify expected schema objects:
+   - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_runs"`
    - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "\\d public.scrape_run_employers"`
-7. If a known migration file still seems unapplied, compare:
+7. Verify seeded bootstrap data when needed:
+   - `psql postgresql://rjr:changeme@localhost:5432/roc_job_radar -c "SELECT key, name FROM public.employers ORDER BY key;"`
+8. If a known migration file still seems unapplied, compare:
    - `journal.entries[].when` in `src/db/migrations/meta/_journal.json`
    - current `created_at` ledger order in `drizzle.__drizzle_migrations`
    - then add a new ordered migration to apply the missing DDL instead of editing history.
-8. If the sequence is irreparably broken, prefer:
+9. If the sequence is irreparably broken, prefer:
    - spin up a fresh DB and re-run `db:migrate`, or
-   - in a disposable local DB only, align `drizzle.__drizzle_migrations` with source history.
+   - reset the migration baseline in source control if the repo history itself is broken and the app is still pre-production.
 
 Never hand-delete or hand-edit migration metadata on shared/production databases.
 
@@ -138,6 +147,7 @@ curl -X POST http://localhost:3000/api/scrape
 Agent policy:
 - Agents must never trigger `POST /api/scrape`, run scrape seed/backfill scripts, or start employer scrapes in dev/prod unless the user explicitly asks for that action in the current turn.
 - Scrape status may be inspected when needed, but write actions that start a scrape always require explicit user instruction.
+- Scheduled scraping is default-off at backend startup and must be explicitly enabled from the admin page for cron-driven runs.
 
 ### Run tests
 ```bash
@@ -216,6 +226,7 @@ Authorship should remain the git user configured in the repository.
 - **Migration ledger is authoritative**; treat `drizzle.__drizzle_migrations` as the canonical applied-migration record.
 - **Never hand-edit tables or `drizzle.__drizzle_migrations`.** Reconciliation must go through migrations.
 - **Never hand-edit `_journal.json`.** The `when` timestamps in `packages/backend/src/db/migrations/meta/_journal.json` are set by `drizzle-kit generate` and must not be modified manually. Drizzle's migrator uses these timestamps as a watermark — editing them can silently cause migrations to be skipped. All schema changes must go through `npm run db:generate` (from `packages/backend`).
+- **Fresh database bootstrap must work with committed source.** On an empty local DB, `npm run db:migrate` followed by `npm run db:seed` must succeed without manual ledger repair or ad hoc SQL.
 - **Each employer adapter is self-contained.** All knowledge about a specific employer's site lives in its adapter file. Include a header comment documenting the ATS type, career URL, and `externalId` strategy used.
 - **Errors in scrapers are caught and logged, never thrown up to the pipeline.** The pipeline continues on per-employer failure.
 - **robots.txt must be checked before every adapter run.** Never bypass this.
@@ -250,13 +261,15 @@ Key env vars:
 - `SCRAPE_CRON` — cron expression for scheduler
   - required at startup (`config.ts` reads this as required)
   - default in `.env.example` is `0 8 * * *` (once daily)
+  - cron is configured at startup, but scheduled scraping remains disabled until explicitly enabled from admin
 - `SCRAPE_DETAIL_INTERVAL_MS` — delay between Workday detail fetches for enrichment (default: 3000ms)
 - `USER_AGENT` — sent with all HTTP requests to employer sites
 - `SCRAPE_TIMEOUT_MS` — per-request timeout
 - `AI_ENABLED`, `AI_MAX_PARALLELISM`, and related AI settings are local `.env.development` values and are not committed repo defaults
-- `OLLAMA_READY_TIMEOUT_MS` — startup wait budget for Ollama API readiness (default: 60000ms)
-- `OLLAMA_PULL_TIMEOUT_MS` — startup wait budget for model discovery/pull verification (default: 600000ms)
-- `.env.production.example` is the tracked production template; production startup blocks on model readiness when `AI_ENABLED=true`
+- `OLLAMA_READY_TIMEOUT_MS` — per-check wait budget for Ollama API readiness (default: 60000ms)
+- `OLLAMA_PULL_TIMEOUT_MS` — per-check wait budget for model pull verification (default: 600000ms)
+- `OLLAMA_RETRY_INTERVAL_MS` — background retry cadence for Ollama/model readiness checks (default: 30000ms)
+- `.env.production.example` is the tracked production template; when `AI_ENABLED=true`, production startup no longer blocks on model readiness
 
 ---
 

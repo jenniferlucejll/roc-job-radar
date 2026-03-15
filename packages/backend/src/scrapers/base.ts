@@ -1,6 +1,7 @@
 import type { ScrapedJob } from '../types/index.js';
 
 export interface ScrapeContext {
+  maxJobs?: number;
   onRequestAttempt?: (info: {
     attempt: number;
     maxAttempts: number;

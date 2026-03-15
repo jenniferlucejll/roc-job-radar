@@ -1,5 +1,6 @@
 import { Router, type Response } from 'express';
 import { triggerPipeline, triggerTestPipeline, getScrapeStatus } from '../../scrapers/pipeline.js';
+import { getScrapeControlState, setScheduledScrapingEnabled } from '../../scheduler.js';
 
 export const scrapeRouter = Router();
 
@@ -22,6 +23,11 @@ function sendAlreadyRunning(res: Response): void {
     code: 'SCRAPE_ALREADY_RUNNING',
     started: false,
   });
+}
+
+function parseScheduledScrapingEnabled(body: Record<string, unknown> | undefined): boolean | null {
+  const value = body?.scheduledScrapingEnabled;
+  return typeof value === 'boolean' ? value : null;
 }
 
 scrapeRouter.post('/', async (req, res, next) => {
@@ -72,34 +78,62 @@ scrapeRouter.post('/test', async (req, res, next) => {
   }
 });
 
-scrapeRouter.get('/status', async (_req, res) => {
-  const maxLimit = 50;
-  const defaultLimit = 10;
-  let limit = defaultLimit;
+scrapeRouter.post('/control', async (req, res, next) => {
+  try {
+    const scheduledScrapingEnabled = parseScheduledScrapingEnabled(
+      req.body as Record<string, unknown> | undefined,
+    );
 
-  const rawLimit = _req.query.limit;
-  if (rawLimit !== undefined) {
-    const candidate = Array.isArray(rawLimit) ? rawLimit[0] : rawLimit;
-    if (typeof candidate !== 'string') {
+    if (scheduledScrapingEnabled === null) {
       res.status(400).json({
-        error: 'Invalid limit parameter',
-        code: 'INVALID_STATUS_LIMIT',
+        error: 'scheduledScrapingEnabled must be a boolean',
+        code: 'INVALID_SCRAPE_CONTROL',
       });
       return;
     }
 
-    const parsed = Number.parseInt(candidate, 10);
-    if (!Number.isInteger(parsed) || parsed < 1 || parsed > maxLimit) {
-      res.status(400).json({
-        error: 'Invalid limit parameter',
-        code: 'INVALID_STATUS_LIMIT',
-      });
-      return;
-    }
-
-    limit = parsed;
+    const controlState = setScheduledScrapingEnabled(scheduledScrapingEnabled);
+    res.json(controlState);
+  } catch (err) {
+    next(err);
   }
+});
 
-  const status = await getScrapeStatus(limit);
-  res.json(status);
+scrapeRouter.get('/status', async (_req, res, next) => {
+  try {
+    const maxLimit = 50;
+    const defaultLimit = 10;
+    let limit = defaultLimit;
+
+    const rawLimit = _req.query.limit;
+    if (rawLimit !== undefined) {
+      const candidate = Array.isArray(rawLimit) ? rawLimit[0] : rawLimit;
+      if (typeof candidate !== 'string') {
+        res.status(400).json({
+          error: 'Invalid limit parameter',
+          code: 'INVALID_STATUS_LIMIT',
+        });
+        return;
+      }
+
+      const parsed = Number.parseInt(candidate, 10);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > maxLimit) {
+        res.status(400).json({
+          error: 'Invalid limit parameter',
+          code: 'INVALID_STATUS_LIMIT',
+        });
+        return;
+      }
+
+      limit = parsed;
+    }
+
+    const status = await getScrapeStatus(limit);
+    res.json({
+      ...status,
+      ...getScrapeControlState(),
+    });
+  } catch (err) {
+    next(err);
+  }
 });

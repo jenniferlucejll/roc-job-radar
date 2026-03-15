@@ -88,6 +88,8 @@ export function ScrapeStatus({ onScrapeComplete }: Props) {
 
   const running = status?.running ?? false
   const last = status?.lastResult
+  const bootstrapBlocking = (status?.bootstrapState ?? 'ready') !== 'ready'
+  const bootstrapMessage = status?.bootstrapMessage
 
   return (
     <div className="border-t border-gray-200 bg-white shrink-0">
@@ -108,7 +110,7 @@ export function ScrapeStatus({ onScrapeComplete }: Props) {
         </button>
         <button
           onClick={handleRunNow}
-          disabled={running || triggering}
+          disabled={running || triggering || bootstrapBlocking}
           className="ml-auto text-xs px-3 py-1.5 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
         >
           {running ? 'Running…' : 'Run now'}
@@ -118,6 +120,9 @@ export function ScrapeStatus({ onScrapeComplete }: Props) {
       {/* Expanded panel */}
       {open && (
         <div className="px-4 pb-3 border-t border-gray-100">
+          {bootstrapBlocking && bootstrapMessage && (
+            <p className="py-2 text-xs text-amber-700">{bootstrapMessage}</p>
+          )}
           {last && (
             <div className="flex gap-4 text-xs text-gray-600 py-2">
               <span><span className="text-green-600 font-medium">+{last.jobsInserted}</span> new</span>

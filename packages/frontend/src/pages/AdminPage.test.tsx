@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
@@ -9,6 +9,7 @@ vi.mock('../api/client.js', () => ({
   fetchEmployers: vi.fn(),
   fetchJobs: vi.fn(),
   fetchScrapeStatus: vi.fn(),
+  setScheduledScrapingEnabled: vi.fn(),
   triggerScrape: vi.fn(),
   triggerTestScrape: vi.fn(),
 }))
@@ -17,6 +18,7 @@ import {
   fetchEmployers,
   fetchJobs,
   fetchScrapeStatus,
+  setScheduledScrapingEnabled,
   triggerScrape,
   triggerTestScrape,
 } from '../api/client.js'
@@ -24,6 +26,7 @@ import {
 const mockFetchEmployers = vi.mocked(fetchEmployers)
 const mockFetchJobs = vi.mocked(fetchJobs)
 const mockFetchScrapeStatus = vi.mocked(fetchScrapeStatus)
+const mockSetScheduledScrapingEnabled = vi.mocked(setScheduledScrapingEnabled)
 const mockTriggerScrape = vi.mocked(triggerScrape)
 const mockTriggerTestScrape = vi.mocked(triggerTestScrape)
 
@@ -128,6 +131,11 @@ function makeStatus(): ScrapeStatusResponse {
         openErrors: 0,
       },
     ],
+    scheduledScrapingEnabled: false,
+    schedulerArmed: false,
+    resetsOnRestart: true,
+    bootstrapState: 'ready',
+    bootstrapMessage: null,
   }
 }
 
@@ -139,14 +147,34 @@ function renderPage() {
   )
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void
+  let reject!: (reason?: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return { promise, resolve, reject }
+}
+
 beforeEach(() => {
+  vi.clearAllMocks()
   mockFetchEmployers.mockResolvedValue([makeEmployer()])
   mockFetchJobs
     .mockResolvedValueOnce([makeJob(1), makeJob(2)])
     .mockResolvedValueOnce([makeJob(1), makeJob(2), makeJob(3, '2026-03-11T00:00:00.000Z')])
   mockFetchScrapeStatus.mockResolvedValue(makeStatus())
+  mockSetScheduledScrapingEnabled.mockResolvedValue({
+    scheduledScrapingEnabled: true,
+    schedulerArmed: true,
+    resetsOnRestart: true,
+  })
   mockTriggerScrape.mockResolvedValue({ started: true, runId: 'run-normal-2' })
   mockTriggerTestScrape.mockResolvedValue({ started: true, runId: 'run-test-2' })
+})
+
+afterEach(() => {
+  vi.useRealTimers()
 })
 
 describe('AdminPage', () => {
@@ -156,6 +184,18 @@ describe('AdminPage', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Test Scrape (3)' })).toBeInTheDocument()
     })
+  })
+
+  it('renders scheduled scraping as disabled by default with reset messaging', async () => {
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Scheduled scraping disabled')).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole('button', { name: 'Enable Scheduled Scraping' })).toBeInTheDocument()
+    expect(screen.getByText('Scheduled scraping resets to disabled whenever the backend restarts.')).toBeInTheDocument()
+    expect(screen.getByText('This controls cron-triggered scraping only. Manual admin scrapes remain available.')).toBeInTheDocument()
   })
 
   it('splits normal runs and test runs into separate sections', async () => {
@@ -182,6 +222,80 @@ describe('AdminPage', () => {
 
     await waitFor(() => {
       expect(mockTriggerTestScrape).toHaveBeenCalledWith('paychex')
+    })
+  })
+
+  it('allows enabling scheduled scraping from the admin page', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    const button = await screen.findByRole('button', { name: 'Enable Scheduled Scraping' })
+    await user.click(button)
+
+    await waitFor(() => {
+      expect(mockSetScheduledScrapingEnabled).toHaveBeenCalledWith(true)
+    })
+  })
+
+  it('disables admin scrape controls until scrape status is loaded', async () => {
+    const statusRequest = deferred<ScrapeStatusResponse>()
+    mockFetchScrapeStatus.mockReturnValueOnce(statusRequest.promise)
+
+    renderPage()
+
+    expect(screen.getByText('Checking backend bootstrap status before enabling admin scrape controls.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enable Scheduled Scraping' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Run Scrape Now' })).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Scrape' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Test Scrape (3)' })).toBeDisabled()
+
+    statusRequest.resolve(makeStatus())
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Enable Scheduled Scraping' })).toBeEnabled()
+    })
+  })
+
+  it('keeps admin scrape controls disabled while bootstrap is still in progress', async () => {
+    mockFetchScrapeStatus.mockResolvedValueOnce({
+      ...makeStatus(),
+      bootstrapState: 'migrating',
+      bootstrapMessage: 'Database migrations are still being applied. Scrape status will be available shortly.',
+    })
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByText('Database migrations are still being applied. Scrape status will be available shortly.')).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole('button', { name: 'Enable Scheduled Scraping' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Run Scrape Now' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Scrape' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Test Scrape (3)' })).toBeDisabled()
+  })
+
+  it('retries employers and job stats after bootstrap completes without a page refresh', async () => {
+    const statusRequest = deferred<ScrapeStatusResponse>()
+    mockFetchScrapeStatus.mockReturnValueOnce(statusRequest.promise)
+    mockFetchEmployers.mockRejectedValueOnce(new Error('schema not ready'))
+    mockFetchJobs
+      .mockRejectedValueOnce(new Error('schema not ready'))
+      .mockRejectedValueOnce(new Error('schema not ready'))
+      .mockResolvedValueOnce([makeJob(1), makeJob(2)])
+      .mockResolvedValueOnce([makeJob(1), makeJob(2), makeJob(3, '2026-03-11T00:00:00.000Z')])
+
+    renderPage()
+
+    expect(screen.getByText('Checking backend bootstrap status before enabling admin scrape controls.')).toBeInTheDocument()
+
+    statusRequest.resolve(makeStatus())
+
+    await waitFor(() => {
+      expect(mockFetchEmployers).toHaveBeenCalledTimes(2)
+      expect(mockFetchJobs).toHaveBeenCalledTimes(4)
+      expect(screen.getByText('Active jobs')).toBeInTheDocument()
+      expect(screen.getAllByText('Paychex').length).toBeGreaterThan(0)
     })
   })
 })

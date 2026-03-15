@@ -1,5 +1,5 @@
 {
-  "id": "0a2d82e5-527e-4fdd-bcbb-74193c7907e8",
+  "id": "a04ed4f9-ba08-4741-9a8d-a1dc15190d5c",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -133,6 +133,108 @@
           "primaryKey": false,
           "notNull": false
         },
+        "salary_normalized_raw": {
+          "name": "salary_normalized_raw",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "salary_normalized_min": {
+          "name": "salary_normalized_min",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "salary_normalized_max": {
+          "name": "salary_normalized_max",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "salary_currency": {
+          "name": "salary_currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "salary_period": {
+          "name": "salary_period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requirements_text": {
+          "name": "requirements_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requirements_html": {
+          "name": "requirements_html",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "responsibilities_text": {
+          "name": "responsibilities_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "responsibilities_html": {
+          "name": "responsibilities_html",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "summary_text": {
+          "name": "summary_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "normalized_description_text": {
+          "name": "normalized_description_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "normalized_description_html": {
+          "name": "normalized_description_html",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_provider": {
+          "name": "ai_provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_model": {
+          "name": "ai_model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_normalized_at": {
+          "name": "ai_normalized_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_warnings": {
+          "name": "ai_warnings",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ai_payload": {
+          "name": "ai_payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "date_posted_at": {
           "name": "date_posted_at",
           "type": "timestamp",
@@ -160,7 +262,53 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "jobs_employer_id_idx": {
+          "name": "jobs_employer_id_idx",
+          "columns": [
+            {
+              "expression": "employer_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_removed_at_idx": {
+          "name": "jobs_removed_at_idx",
+          "columns": [
+            {
+              "expression": "removed_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "jobs_first_seen_at_idx": {
+          "name": "jobs_first_seen_at_idx",
+          "columns": [
+            {
+              "expression": "first_seen_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "jobs_employer_id_employers_id_fk": {
           "name": "jobs_employer_id_employers_id_fk",
@@ -184,6 +332,13 @@
           "columns": [
             "employer_id",
             "external_id"
+          ]
+        },
+        "jobs_url_unique": {
+          "name": "jobs_url_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "url"
           ]
         }
       },
@@ -272,6 +427,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {},
@@ -292,6 +453,284 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scrape_run_employers": {
+      "name": "scrape_run_employers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "employer_id": {
+          "name": "employer_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "jobs_scraped": {
+          "name": "jobs_scraped",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_filtered": {
+          "name": "jobs_filtered",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_inserted": {
+          "name": "jobs_inserted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_updated": {
+          "name": "jobs_updated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_removed": {
+          "name": "jobs_removed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "request_attempts": {
+          "name": "request_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "retry_attempts": {
+          "name": "retry_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "unresolved_errors": {
+          "name": "unresolved_errors",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "errors": {
+          "name": "errors",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'"
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "scrape_run_employers_run_id_scrape_runs_run_id_fk": {
+          "name": "scrape_run_employers_run_id_scrape_runs_run_id_fk",
+          "tableFrom": "scrape_run_employers",
+          "tableTo": "scrape_runs",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "run_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "scrape_run_employers_employer_id_employers_id_fk": {
+          "name": "scrape_run_employers_employer_id_employers_id_fk",
+          "tableFrom": "scrape_run_employers",
+          "tableTo": "employers",
+          "columnsFrom": [
+            "employer_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "scrape_run_employers_run_id_employer_id_unique": {
+          "name": "scrape_run_employers_run_id_employer_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "run_id",
+            "employer_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.scrape_runs": {
+      "name": "scrape_runs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "serial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "run_type": {
+          "name": "run_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'normal'"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'success'"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "employers_run": {
+          "name": "employers_run",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_inserted": {
+          "name": "jobs_inserted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_updated": {
+          "name": "jobs_updated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "jobs_removed": {
+          "name": "jobs_removed",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "errors": {
+          "name": "errors",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "request_attempts": {
+          "name": "request_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "retry_attempts": {
+          "name": "retry_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "open_errors": {
+          "name": "open_errors",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "scrape_runs_run_id_unique": {
+          "name": "scrape_runs_run_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "run_id"
+          ]
+        }
+      },
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false

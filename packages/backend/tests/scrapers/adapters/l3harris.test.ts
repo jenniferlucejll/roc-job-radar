@@ -89,6 +89,18 @@ describe('L3HarrisScraper', () => {
     expect(jobs[2].externalId).toBe('92001003');
   });
 
+  it('stops pagination and detail enrichment once maxJobs is reached', async () => {
+    const fetchMock = buildFetchMock({ listingPages: [page1, page2] });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const jobs = await l3harrisScraper.scrape({ maxJobs: 3 });
+
+    expect(jobs).toHaveLength(3);
+    expect(jobs[2].externalId).toBe('92001003');
+    // 2 listing calls (page1, page2) + 3 detail calls = 5
+    expect(fetchMock).toHaveBeenCalledTimes(5);
+  });
+
   it('returns empty array when hasJobs is false on first page', async () => {
     vi.stubGlobal(
       'fetch',

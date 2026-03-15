@@ -102,7 +102,9 @@ export async function fetchTalentBrewJobs(
 ): Promise<ScrapedJob[]> {
   const throttler = createRequestThrottler(requestIntervalMs);
   const all: ScrapedJob[] = [];
+  const maxJobs = context?.maxJobs;
   let page = 1;
+  let pagesFetched = 0;
 
   console.log(`[talentbrew] Fetching listing: GET ${tbConfig.baseUrl} (${tbConfig.locationSlug})`);
 
@@ -134,10 +136,15 @@ export async function fetchTalentBrewJobs(
       },
     );
     if (!data.hasJobs) break;
+    pagesFetched++;
 
     const countBefore = all.length;
     const $ = load(data.results);
     $('a[data-job-id]').each((_, el) => {
+      if (maxJobs !== undefined && all.length >= maxJobs) {
+        return false;
+      }
+
       const a = $(el);
       const externalId = a.attr('data-job-id')!;
       const href = a.attr('href')!;
@@ -154,10 +161,18 @@ export async function fetchTalentBrewJobs(
     });
 
     console.log(`[talentbrew] Page ${page}: ${all.length - countBefore} jobs (running total: ${all.length})`);
+
+    if (maxJobs !== undefined && all.length >= maxJobs) {
+      break;
+    }
+
     page++;
   }
 
-  console.log(`[talentbrew] Listing complete: ${all.length} job${all.length !== 1 ? 's' : ''} across ${page - 1} page${page - 1 !== 1 ? 's' : ''}`);
+  console.log(
+    `[talentbrew] Listing complete: ${all.length} job${all.length !== 1 ? 's' : ''} ` +
+    `across ${pagesFetched} page${pagesFetched !== 1 ? 's' : ''}`,
+  );
 
   if (!enrichDetails || all.length === 0) {
     return all;

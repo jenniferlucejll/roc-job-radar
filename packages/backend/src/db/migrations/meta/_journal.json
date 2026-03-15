@@ -5,57 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1773253663285,
-      "tag": "0000_tidy_ulik",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1773262089191,
-      "tag": "0001_nifty_lady_ursula",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1773264735574,
-      "tag": "0003_steep_psylocke",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1773491234567,
-      "tag": "0002_tidy_noble_finn",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1773491234568,
-      "tag": "0004_deep_maddog",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1773491235568,
-      "tag": "0005_harsh_crusher_hogan",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "7",
-      "when": 1773491235569,
-      "tag": "0006_cloudy_chamber",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "7",
-      "when": 1773491235570,
-      "tag": "0007_woozy_piledriver",
+      "when": 1773405598617,
+      "tag": "0000_majestic_bloodstorm",
       "breakpoints": true
     }
   ]
